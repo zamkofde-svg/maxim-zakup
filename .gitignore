@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Claude agent memory (локальное)
+.claude/
+
+# Python (на будущее)
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.env.local
+
+# Node (на будущее)
+node_modules/
+dist/
+build/
+.next/

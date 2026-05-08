@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Закупки Максим — Управление</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { font-family: 'Inter', sans-serif; }
+  body { background: #f8fafc; }
+  .nav-item.active { background: #eef2ff; color: #4f46e5; }
+  .nav-item.active svg { color: #4f46e5; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .gradient-card { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); }
+  .traffic-green { background: #dcfce7; color: #166534; }
+  .traffic-yellow { background: #fef3c7; color: #92400e; }
+  .traffic-red { background: #fee2e2; color: #991b1b; }
+  .traffic-grey { background: #f1f5f9; color: #475569; }
+  .pulse-dot { animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .row-anomaly { background: linear-gradient(90deg, rgba(254, 226, 226, 0.4) 0%, transparent 100%); }
+  .progress-fill { transition: width 0.3s ease-out; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body class="text-slate-900">
+
+<div class="flex h-screen overflow-hidden">
+
+  <!-- SIDEBAR -->
+  <aside class="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
+    <div class="p-5 border-b border-slate-200">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl gradient-card flex items-center justify-center text-white font-bold text-lg">М</div>
+        <div>
+          <div class="font-bold text-slate-900">Максим</div>
+          <div class="text-xs text-slate-500">Закупки · Тюмень</div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+      <a href="#" data-page="dashboard" class="nav-item active flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <i data-lucide="layout-dashboard" class="w-4 h-4 text-slate-500"></i>
+        Обзор
+      </a>
+      <a href="#" data-page="recommendations" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <i data-lucide="trophy" class="w-4 h-4 text-slate-500"></i>
+        Рекомендации шефам
+      </a>
+      <a href="#" data-page="analysis" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <i data-lucide="search-check" class="w-4 h-4 text-slate-500"></i>
+        Анализ закупок
+        <span class="ml-auto text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">12</span>
+      </a>
+      <a href="#" data-page="prices" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <i data-lucide="line-chart" class="w-4 h-4 text-slate-500"></i>
+        Динамика цен
+      </a>
+      <a href="#" data-page="suppliers" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <i data-lucide="truck" class="w-4 h-4 text-slate-500"></i>
+        Поставщики
+      </a>
+      <a href="#" data-page="mapping" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <i data-lucide="git-merge" class="w-4 h-4 text-slate-500"></i>
+        Карта позиций
+      </a>
+
+      <div class="pt-4 pb-2 px-3 text-xs uppercase tracking-wider text-slate-400 font-semibold">Управление</div>
+
+      <a href="#" data-page="ceo" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <i data-lucide="sparkles" class="w-4 h-4 text-slate-500"></i>
+        Сводка для CEO
+        <span class="ml-auto text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">AI</span>
+      </a>
+      <a href="#" data-page="inflation" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <i data-lucide="trending-up" class="w-4 h-4 text-slate-500"></i>
+        Закупки vs Инфляция
+      </a>
+    </nav>
+
+    <div class="p-3 border-t border-slate-200">
+      <div class="bg-slate-50 rounded-lg p-3">
+        <div class="flex items-center gap-2 text-xs text-slate-500 mb-1">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
+          Последний пересчёт
+        </div>
+        <div class="text-sm font-medium text-slate-900">06.05 в 14:22</div>
+        <div class="text-xs text-slate-500 mt-0.5">занял 47 секунд</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="flex-1 overflow-y-auto">
+
+    <!-- TOP BAR -->
+    <div class="sticky top-0 bg-white/80 backdrop-blur-sm border-b border-slate-200 px-8 py-4 z-10">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-xs text-slate-500" id="breadcrumb">Главная</div>
+          <h1 class="text-xl font-bold text-slate-900" id="page-title">Обзор закупок</h1>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2 text-sm text-slate-600">
+            <i data-lucide="calendar" class="w-4 h-4"></i>
+            <select class="bg-transparent border border-slate-200 rounded-lg px-3 py-1.5 text-sm">
+              <option>Апрель 2026</option>
+              <option>Март 2026</option>
+              <option>Февраль 2026</option>
+            </select>
+          </div>
+          <button onclick="runRecalc()" id="recalc-btn" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            Запустить пересчёт
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ DASHBOARD ============ -->
+    <div id="page-dashboard" class="page active p-8">
+
+      <!-- Hero stats -->
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Переплата за период</span>
+            <i data-lucide="trending-down" class="w-4 h-4 text-emerald-600"></i>
+          </div>
+          <div class="text-3xl font-bold text-slate-900">487 320 ₽</div>
+          <div class="text-sm text-emerald-600 font-medium mt-1">−12% к прошлому периоду</div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Доля закупок по Топ-2</span>
+            <i data-lucide="trending-up" class="w-4 h-4 text-emerald-600"></i>
+          </div>
+          <div class="text-3xl font-bold text-slate-900">64%</div>
+          <div class="text-sm text-emerald-600 font-medium mt-1">+8% к прошлому периоду</div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Аномальный рост</span>
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-red-500"></i>
+          </div>
+          <div class="text-3xl font-bold text-slate-900">7 позиций</div>
+          <div class="text-sm text-red-600 font-medium mt-1">рост &gt; 15% за период</div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Дисциплина шефов</span>
+            <i data-lucide="users" class="w-4 h-4 text-amber-500"></i>
+          </div>
+          <div class="text-3xl font-bold text-slate-900">78%</div>
+          <div class="text-sm text-slate-500 font-medium mt-1">причины указаны у 78%</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-6 mb-6">
+
+        <!-- Chart -->
+        <div class="col-span-2 bg-white rounded-xl border border-slate-200 p-6">
+          <div class="flex items-center justify-between mb-5">
+            <div>
+              <h3 class="font-semibold text-slate-900">Динамика средней цены — Группа A</h3>
+              <p class="text-xs text-slate-500 mt-0.5">Индекс закупочных цен по 23 ключевым позициям</p>
+            </div>
+            <div class="flex gap-2 text-xs">
+              <span class="flex items-center gap-1 text-slate-600"><span class="w-2 h-2 rounded-full bg-indigo-500"></span>Закупки</span>
+              <span class="flex items-center gap-1 text-slate-600"><span class="w-2 h-2 rounded-full bg-slate-300"></span>Инфляция РФ</span>
+            </div>
+          </div>
+          <svg viewBox="0 0 600 200" class="w-full h-48">
+            <defs>
+              <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#6366f1" stop-opacity="0.3"/>
+                <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <!-- grid -->
+            <line x1="0" y1="40" x2="600" y2="40" stroke="#f1f5f9" stroke-width="1"/>
+            <line x1="0" y1="80" x2="600" y2="80" stroke="#f1f5f9" stroke-width="1"/>
+            <line x1="0" y1="120" x2="600" y2="120" stroke="#f1f5f9" stroke-width="1"/>
+            <line x1="0" y1="160" x2="600" y2="160" stroke="#f1f5f9" stroke-width="1"/>
+            <!-- inflation -->
+            <polyline points="40,140 130,138 220,135 310,130 400,128 490,125 560,122" stroke="#cbd5e1" stroke-width="2" fill="none" stroke-dasharray="4,4"/>
+            <!-- purchases -->
+            <path d="M40,150 L130,148 L220,140 L310,135 L400,115 L490,108 L560,95 L560,200 L40,200 Z" fill="url(#g1)"/>
+            <polyline points="40,150 130,148 220,140 310,135 400,115 490,108 560,95" stroke="#6366f1" stroke-width="2.5" fill="none"/>
+            <!-- dots -->
+            <circle cx="40" cy="150" r="4" fill="#6366f1"/>
+            <circle cx="130" cy="148" r="4" fill="#6366f1"/>
+            <circle cx="220" cy="140" r="4" fill="#6366f1"/>
+            <circle cx="310" cy="135" r="4" fill="#6366f1"/>
+            <circle cx="400" cy="115" r="4" fill="#6366f1"/>
+            <circle cx="490" cy="108" r="4" fill="#6366f1"/>
+            <circle cx="560" cy="95" r="4" fill="#6366f1"/>
+            <!-- labels -->
+            <text x="40" y="195" fill="#94a3b8" font-size="10" text-anchor="middle">Окт</text>
+            <text x="130" y="195" fill="#94a3b8" font-size="10" text-anchor="middle">Ноя</text>
+            <text x="220" y="195" fill="#94a3b8" font-size="10" text-anchor="middle">Дек</text>
+            <text x="310" y="195" fill="#94a3b8" font-size="10" text-anchor="middle">Янв</text>
+            <text x="400" y="195" fill="#94a3b8" font-size="10" text-anchor="middle">Фев</text>
+            <text x="490" y="195" fill="#94a3b8" font-size="10" text-anchor="middle">Мар</text>
+            <text x="560" y="195" fill="#94a3b8" font-size="10" text-anchor="middle">Апр</text>
+          </svg>
+          <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-sm">
+            <span class="text-slate-600">За 6 месяцев:</span>
+            <span class="font-medium"><span class="text-indigo-600">+11.4%</span> закупки <span class="text-slate-400 mx-2">vs</span> <span class="text-slate-500">+6.2%</span> инфляция</span>
+          </div>
+        </div>
+
+        <!-- Categories -->
+        <div class="bg-white rounded-xl border border-slate-200 p-6">
+          <h3 class="font-semibold text-slate-900 mb-1">По категориям</h3>
+          <p class="text-xs text-slate-500 mb-4">Переплата за период</p>
+          <div class="space-y-3">
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-slate-700">Мясо</span>
+                <span class="font-semibold text-red-600">142 800 ₽</span>
+              </div>
+              <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full bg-red-500" style="width: 100%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-slate-700">Сыры</span>
+                <span class="font-semibold text-red-600">98 450 ₽</span>
+              </div>
+              <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full bg-red-500" style="width: 69%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-slate-700">Молочка</span>
+                <span class="font-semibold text-amber-600">76 220 ₽</span>
+              </div>
+              <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full bg-amber-500" style="width: 53%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-slate-700">Рыба</span>
+                <span class="font-semibold text-amber-600">62 100 ₽</span>
+              </div>
+              <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full bg-amber-500" style="width: 43%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-slate-700">Шоколад</span>
+                <span class="font-semibold text-slate-700">54 380 ₽</span>
+              </div>
+              <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full bg-slate-400" style="width: 38%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-slate-700">Бакалея</span>
+                <span class="font-semibold text-slate-700">31 200 ₽</span>
+              </div>
+              <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full bg-slate-400" style="width: 22%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-slate-700">Остальные</span>
+                <span class="font-semibold text-slate-500">22 170 ₽</span>
+              </div>
+              <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full bg-slate-300" style="width: 15%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top anomalies + restaurants -->
+      <div class="grid grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl border border-slate-200">
+          <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 class="font-semibold text-slate-900">Топ переплат</h3>
+            <a href="#" onclick="navigate('analysis')" class="text-sm text-indigo-600 hover:text-indigo-700 font-medium">Все →</a>
+          </div>
+          <div class="divide-y divide-slate-100">
+            <div class="px-6 py-3 flex items-center gap-4">
+              <span class="px-2 py-1 rounded text-xs font-semibold traffic-red">🔴 Дороже</span>
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">Сыр Пармезан 36 мес</div>
+                <div class="text-xs text-slate-500">«TEHNIKUM» · "ТК УМАЙ"</div>
+              </div>
+              <div class="text-right">
+                <div class="font-semibold text-red-600">+1 135 ₽</div>
+                <div class="text-xs text-slate-500">+47% к Топ-2</div>
+              </div>
+            </div>
+            <div class="px-6 py-3 flex items-center gap-4">
+              <span class="px-2 py-1 rounded text-xs font-semibold traffic-red">🔴 Дороже</span>
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">Говядина вырезка</div>
+                <div class="text-xs text-slate-500">«Чум» · "ЮФС"</div>
+              </div>
+              <div class="text-right">
+                <div class="font-semibold text-red-600">+796 ₽</div>
+                <div class="text-xs text-slate-500">+99% к Топ-2</div>
+              </div>
+            </div>
+            <div class="px-6 py-3 flex items-center gap-4">
+              <span class="px-2 py-1 rounded text-xs font-semibold traffic-red">🔴 Дороже</span>
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">Лосось филе с/м</div>
+                <div class="text-xs text-slate-500">«Посейдон» · "ЕвроСиб-Трейд"</div>
+              </div>
+              <div class="text-right">
+                <div class="font-semibold text-red-600">+579 ₽</div>
+                <div class="text-xs text-slate-500">+93% к Топ-2</div>
+              </div>
+            </div>
+            <div class="px-6 py-3 flex items-center gap-4">
+              <span class="px-2 py-1 rounded text-xs font-semibold traffic-yellow">🟡 Внимание</span>
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">Майонез Провансаль 10 кг</div>
+                <div class="text-xs text-slate-500">«Чум» · "Хорека Партнер"</div>
+              </div>
+              <div class="text-right">
+                <div class="font-semibold text-amber-600">+439 ₽</div>
+                <div class="text-xs text-slate-500">+13% к Топ-2</div>
+              </div>
+            </div>
+            <div class="px-6 py-3 flex items-center gap-4">
+              <span class="px-2 py-1 rounded text-xs font-semibold traffic-yellow">🟡 Внимание</span>
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">Кефир 3.2% ГОСТ</div>
+                <div class="text-xs text-slate-500">«TEHNIKUM» · "Восток-Запад"</div>
+              </div>
+              <div class="text-right">
+                <div class="font-semibold text-amber-600">+396 ₽</div>
+                <div class="text-xs text-slate-500">+9% к Топ-2</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200">
+          <div class="px-6 py-4 border-b border-slate-100">
+            <h3 class="font-semibold text-slate-900">Дисциплина по ресторанам</h3>
+          </div>
+          <div class="divide-y divide-slate-100">
+            <div class="px-6 py-3.5 flex items-center gap-4">
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">«Чум»</div>
+                <div class="text-xs text-slate-500">шеф: Бахметьев Д.А.</div>
+              </div>
+              <div class="w-32">
+                <div class="flex items-center justify-between text-xs mb-1">
+                  <span class="text-slate-600">по Топ-2</span>
+                  <span class="font-semibold text-emerald-600">82%</span>
+                </div>
+                <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-emerald-500" style="width: 82%"></div>
+                </div>
+              </div>
+            </div>
+            <div class="px-6 py-3.5 flex items-center gap-4">
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">«Посейдон»</div>
+                <div class="text-xs text-slate-500">шеф: Дроздов И.С.</div>
+              </div>
+              <div class="w-32">
+                <div class="flex items-center justify-between text-xs mb-1">
+                  <span class="text-slate-600">по Топ-2</span>
+                  <span class="font-semibold text-emerald-600">74%</span>
+                </div>
+                <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-emerald-500" style="width: 74%"></div>
+                </div>
+              </div>
+            </div>
+            <div class="px-6 py-3.5 flex items-center gap-4">
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">«Дача»</div>
+                <div class="text-xs text-slate-500">шеф: Лесников А.М.</div>
+              </div>
+              <div class="w-32">
+                <div class="flex items-center justify-between text-xs mb-1">
+                  <span class="text-slate-600">по Топ-2</span>
+                  <span class="font-semibold text-amber-600">61%</span>
+                </div>
+                <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-amber-500" style="width: 61%"></div>
+                </div>
+              </div>
+            </div>
+            <div class="px-6 py-3.5 flex items-center gap-4">
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">«TEHNIKUM»</div>
+                <div class="text-xs text-slate-500">шеф: Технов В.Д.</div>
+              </div>
+              <div class="w-32">
+                <div class="flex items-center justify-between text-xs mb-1">
+                  <span class="text-slate-600">по Топ-2</span>
+                  <span class="font-semibold text-red-600">48%</span>
+                </div>
+                <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-red-500" style="width: 48%"></div>
+                </div>
+              </div>
+            </div>
+            <div class="px-6 py-3.5 flex items-center gap-4">
+              <div class="flex-1">
+                <div class="font-medium text-slate-900 text-sm">«Ван Гоги»</div>
+                <div class="text-xs text-slate-500">шеф: Гобеджишвили Г.Н.</div>
+              </div>
+              <div class="w-32">
+                <div class="flex items-center justify-between text-xs mb-1">
+                  <span class="text-slate-600">по Топ-2</span>
+                  <span class="font-semibold text-red-600">43%</span>
+                </div>
+                <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-red-500" style="width: 43%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ RECOMMENDATIONS ============ -->
+    <div id="page-recommendations" class="page p-8">
+      <div class="bg-white rounded-xl border border-slate-200 mb-4">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 class="font-semibold text-slate-900">Топ-2 рекомендации шефам</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Обновлены автоматически из матриц поставщиков · 06.05.2026</p>
+          </div>
+          <div class="flex gap-2">
+            <button class="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-lg text-sm hover:bg-slate-50">
+              <i data-lucide="download" class="w-4 h-4"></i> Excel
+            </button>
+            <button class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium">
+              <i data-lucide="send" class="w-4 h-4"></i> Отправить шефам
+            </button>
+          </div>
+        </div>
+
+        <div class="px-6 py-3 border-b border-slate-100 flex gap-2 flex-wrap text-sm">
+          <button class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full font-medium">Все</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Молочка</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Сыры</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Мясо</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Рыба и морепродукты</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Шоколад</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Макароны</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Бакалея</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Ягода с/м</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Яйцо</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Консервация</button>
+        </div>
+
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
+            <tr>
+              <th class="px-6 py-3 text-left">Товар</th>
+              <th class="px-6 py-3 text-left">Группа</th>
+              <th class="px-6 py-3 text-left">🥇 Лучшее предложение</th>
+              <th class="px-6 py-3 text-left">🥈 Второй вариант</th>
+              <th class="px-6 py-3 text-left">Δ цены</th>
+              <th class="px-6 py-3"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3.5 font-medium">Йогурт TEOS</td>
+              <td class="px-6 py-3.5"><span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">Молочка</span></td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-900">448 ₽</div>
+                <div class="text-xs text-slate-500">Глобал Фудс</div>
+              </td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-700">462 ₽</div>
+                <div class="text-xs text-slate-500">Восток-Запад</div>
+              </td>
+              <td class="px-6 py-3.5"><span class="text-emerald-600 text-sm font-medium">−2.1%</span></td>
+              <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3.5 font-medium">Кефир "Тюменьмолоко"</td>
+              <td class="px-6 py-3.5"><span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">Молочка</span></td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-900">82 ₽/л</div>
+                <div class="text-xs text-slate-500">Восток-Запад</div>
+              </td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-700">87 ₽/л</div>
+                <div class="text-xs text-slate-500">Метро Кэш</div>
+              </td>
+              <td class="px-6 py-3.5"><span class="text-red-600 text-sm font-medium">+4.2%</span></td>
+              <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3.5 font-medium">Майонез Провансаль 10 кг</td>
+              <td class="px-6 py-3.5"><span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">Молочка</span></td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-900">266 ₽/кг</div>
+                <div class="text-xs text-slate-500">ТК УМАЙ</div>
+              </td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-700">279 ₽/кг</div>
+                <div class="text-xs text-slate-500">ЕвроСиб-Трейд</div>
+              </td>
+              <td class="px-6 py-3.5"><span class="text-slate-500 text-sm font-medium">0%</span></td>
+              <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
+            </tr>
+            <tr class="hover:bg-slate-50 row-anomaly">
+              <td class="px-6 py-3.5 font-medium flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-4 h-4 text-red-500"></i>
+                Сыр Пармезан 36 мес
+              </td>
+              <td class="px-6 py-3.5"><span class="text-xs bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded">Сыры</span></td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-900">2 380 ₽/кг</div>
+                <div class="text-xs text-slate-500">Метро Кэш</div>
+              </td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-700">2 510 ₽/кг</div>
+                <div class="text-xs text-slate-500">ТК УМАЙ</div>
+              </td>
+              <td class="px-6 py-3.5"><span class="text-red-600 text-sm font-medium">+18%</span></td>
+              <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3.5 font-medium">Говядина вырезка охл.</td>
+              <td class="px-6 py-3.5"><span class="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">Мясо</span></td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-900">1 190 ₽/кг</div>
+                <div class="text-xs text-slate-500">УРАЛ ФУД</div>
+              </td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-700">1 245 ₽/кг</div>
+                <div class="text-xs text-slate-500">ЮФС</div>
+              </td>
+              <td class="px-6 py-3.5"><span class="text-emerald-600 text-sm font-medium">−3.4%</span></td>
+              <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3.5 font-medium">Лосось филе с/м</td>
+              <td class="px-6 py-3.5"><span class="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">Рыба</span></td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-900">980 ₽/кг</div>
+                <div class="text-xs text-slate-500">ЮФС</div>
+              </td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-700">1 050 ₽/кг</div>
+                <div class="text-xs text-slate-500">ЕвроСиб-Трейд</div>
+              </td>
+              <td class="px-6 py-3.5"><span class="text-emerald-600 text-sm font-medium">−1.8%</span></td>
+              <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3.5 font-medium">Шоколад Callebaut тёмный 54%</td>
+              <td class="px-6 py-3.5"><span class="text-xs bg-amber-50 text-amber-800 px-2 py-0.5 rounded">Шоколад</span></td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-900">1 480 ₽/кг</div>
+                <div class="text-xs text-slate-500">Глобал Фудс</div>
+              </td>
+              <td class="px-6 py-3.5">
+                <div class="font-semibold text-slate-700">1 540 ₽/кг</div>
+                <div class="text-xs text-slate-500">Регион-1</div>
+              </td>
+              <td class="px-6 py-3.5"><span class="text-slate-500 text-sm font-medium">+0.3%</span></td>
+              <td class="px-6 py-3.5"><span class="text-slate-400 text-xs">B</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ ANALYSIS ============ -->
+    <div id="page-analysis" class="page p-8">
+
+      <div class="grid grid-cols-4 gap-4 mb-4">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">🟢 По Топ-2</div>
+          <div class="text-2xl font-bold text-emerald-600">847</div>
+          <div class="text-xs text-slate-500">63.8% позиций</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">🟡 Внимание</div>
+          <div class="text-2xl font-bold text-amber-600">312</div>
+          <div class="text-xs text-slate-500">+5..15% к Топ-2</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">🔴 Дороже</div>
+          <div class="text-2xl font-bold text-red-600">128</div>
+          <div class="text-xs text-slate-500">+15% и выше</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">⚪ Мало данных</div>
+          <div class="text-2xl font-bold text-slate-600">42</div>
+          <div class="text-xs text-slate-500">нет в матрицах</div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
+          <h3 class="font-semibold text-slate-900">Отклонения факта от Топ-2</h3>
+          <div class="flex gap-2 text-sm">
+            <select class="bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+              <option>Все рестораны</option>
+              <option>«Чум»</option>
+              <option>«Посейдон»</option>
+              <option>«Дача»</option>
+              <option>«TEHNIKUM»</option>
+            </select>
+            <select class="bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+              <option>Все категории</option>
+              <option>Молочка</option>
+              <option>Мясо</option>
+              <option>Сыры</option>
+            </select>
+            <select class="bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+              <option>🔴🟡 С отклонением</option>
+              <option>Все</option>
+              <option>🔴 Только дороже</option>
+            </select>
+          </div>
+        </div>
+
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
+            <tr>
+              <th class="px-6 py-3 text-left">Дата</th>
+              <th class="px-6 py-3 text-left">Ресторан</th>
+              <th class="px-6 py-3 text-left">Товар</th>
+              <th class="px-6 py-3 text-left">Поставщик</th>
+              <th class="px-6 py-3 text-right">Цена факт</th>
+              <th class="px-6 py-3 text-right">Топ-2</th>
+              <th class="px-6 py-3 text-right">Δ ₽</th>
+              <th class="px-6 py-3 text-right">Δ %</th>
+              <th class="px-6 py-3 text-left">Статус</th>
+              <th class="px-6 py-3 text-left">Причина</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr class="hover:bg-slate-50 row-anomaly">
+              <td class="px-6 py-3 text-slate-600">28.04</td>
+              <td class="px-6 py-3 font-medium">«TEHNIKUM»</td>
+              <td class="px-6 py-3">Сыр Пармезан 36 мес</td>
+              <td class="px-6 py-3 text-slate-600">ТК УМАЙ</td>
+              <td class="px-6 py-3 text-right font-medium">3 515 ₽</td>
+              <td class="px-6 py-3 text-right text-slate-500">2 380 ₽</td>
+              <td class="px-6 py-3 text-right font-semibold text-red-600">+1 135</td>
+              <td class="px-6 py-3 text-right font-semibold text-red-600">+47%</td>
+              <td class="px-6 py-3"><span class="px-2 py-0.5 rounded text-xs traffic-red font-semibold">🔴 Дороже</span></td>
+              <td class="px-6 py-3"><button class="text-xs text-indigo-600 hover:underline">+ указать</button></td>
+            </tr>
+            <tr class="hover:bg-slate-50 row-anomaly">
+              <td class="px-6 py-3 text-slate-600">27.04</td>
+              <td class="px-6 py-3 font-medium">«Чум»</td>
+              <td class="px-6 py-3">Говядина вырезка охл.</td>
+              <td class="px-6 py-3 text-slate-600">ЮФС</td>
+              <td class="px-6 py-3 text-right font-medium">1 596 ₽</td>
+              <td class="px-6 py-3 text-right text-slate-500">800 ₽</td>
+              <td class="px-6 py-3 text-right font-semibold text-red-600">+796</td>
+              <td class="px-6 py-3 text-right font-semibold text-red-600">+99%</td>
+              <td class="px-6 py-3"><span class="px-2 py-0.5 rounded text-xs traffic-red font-semibold">🔴 Дороже</span></td>
+              <td class="px-6 py-3 text-xs text-slate-600">Срочный заказ</td>
+            </tr>
+            <tr class="hover:bg-slate-50 row-anomaly">
+              <td class="px-6 py-3 text-slate-600">27.04</td>
+              <td class="px-6 py-3 font-medium">«Посейдон»</td>
+              <td class="px-6 py-3">Лосось филе с/м</td>
+              <td class="px-6 py-3 text-slate-600">ЕвроСиб-Трейд</td>
+              <td class="px-6 py-3 text-right font-medium">1 200 ₽</td>
+              <td class="px-6 py-3 text-right text-slate-500">621 ₽</td>
+              <td class="px-6 py-3 text-right font-semibold text-red-600">+579</td>
+              <td class="px-6 py-3 text-right font-semibold text-red-600">+93%</td>
+              <td class="px-6 py-3"><span class="px-2 py-0.5 rounded text-xs traffic-red font-semibold">🔴 Дороже</span></td>
+              <td class="px-6 py-3"><button class="text-xs text-indigo-600 hover:underline">+ указать</button></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 text-slate-600">26.04</td>
+              <td class="px-6 py-3 font-medium">«Чум»</td>
+              <td class="px-6 py-3">Майонез Провансаль 10 кг</td>
+              <td class="px-6 py-3 text-slate-600">Хорека Партнер</td>
+              <td class="px-6 py-3 text-right font-medium">3 192 ₽</td>
+              <td class="px-6 py-3 text-right text-slate-500">2 736 ₽</td>
+              <td class="px-6 py-3 text-right font-semibold text-amber-600">+439</td>
+              <td class="px-6 py-3 text-right font-semibold text-amber-600">+13.8%</td>
+              <td class="px-6 py-3"><span class="px-2 py-0.5 rounded text-xs traffic-yellow font-semibold">🟡 Внимание</span></td>
+              <td class="px-6 py-3 text-xs text-slate-600">Нет наличия</td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 text-slate-600">26.04</td>
+              <td class="px-6 py-3 font-medium">«Дача»</td>
+              <td class="px-6 py-3">Шоколад Callebaut тёмный 54%</td>
+              <td class="px-6 py-3 text-slate-600">Глобал Фудс</td>
+              <td class="px-6 py-3 text-right font-medium">17 760 ₽</td>
+              <td class="px-6 py-3 text-right text-slate-500">17 760 ₽</td>
+              <td class="px-6 py-3 text-right font-semibold text-slate-500">0</td>
+              <td class="px-6 py-3 text-right font-semibold text-slate-500">0%</td>
+              <td class="px-6 py-3"><span class="px-2 py-0.5 rounded text-xs traffic-green font-semibold">🟢 Топ-2</span></td>
+              <td class="px-6 py-3 text-xs text-slate-400">—</td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 text-slate-600">25.04</td>
+              <td class="px-6 py-3 font-medium">«Чум»</td>
+              <td class="px-6 py-3">Кефир 3.2% ГОСТ</td>
+              <td class="px-6 py-3 text-slate-600">Восток-Запад</td>
+              <td class="px-6 py-3 text-right font-medium">1 098 ₽</td>
+              <td class="px-6 py-3 text-right text-slate-500">1 017 ₽</td>
+              <td class="px-6 py-3 text-right font-semibold text-emerald-600">−132</td>
+              <td class="px-6 py-3 text-right font-semibold text-emerald-600">−4.1%</td>
+              <td class="px-6 py-3"><span class="px-2 py-0.5 rounded text-xs traffic-green font-semibold">🟢 Дешевле</span></td>
+              <td class="px-6 py-3 text-xs text-slate-400">—</td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 text-slate-600">25.04</td>
+              <td class="px-6 py-3 font-medium">«Ван Гоги»</td>
+              <td class="px-6 py-3">Йогурт TEOS</td>
+              <td class="px-6 py-3 text-slate-600">Регион-1</td>
+              <td class="px-6 py-3 text-right font-medium">1 140 ₽</td>
+              <td class="px-6 py-3 text-right text-slate-400">—</td>
+              <td class="px-6 py-3 text-right text-slate-400">—</td>
+              <td class="px-6 py-3 text-right text-slate-400">—</td>
+              <td class="px-6 py-3"><span class="px-2 py-0.5 rounded text-xs traffic-grey font-semibold">⚪ Мало данных</span></td>
+              <td class="px-6 py-3 text-xs text-slate-400">—</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="px-6 py-3 border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
+          <span>Показано 7 из 1 329</span>
+          <div class="flex gap-1">
+            <button class="px-2 py-1 hover:bg-slate-100 rounded">←</button>
+            <button class="px-2 py-1 bg-slate-100 rounded">1</button>
+            <button class="px-2 py-1 hover:bg-slate-100 rounded">2</button>
+            <button class="px-2 py-1 hover:bg-slate-100 rounded">3</button>
+            <button class="px-2 py-1 hover:bg-slate-100 rounded">→</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ PRICES ============ -->
+    <div id="page-prices" class="page p-8">
+      <div class="bg-white rounded-xl border border-slate-200 p-6 mb-4">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="font-semibold text-slate-900">Динамика цены — Сыр Пармезан 36 мес</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Группа A · история по 4 поставщикам · 6 месяцев</p>
+          </div>
+          <select class="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm">
+            <option>Сыр Пармезан 36 мес</option>
+            <option>Йогурт TEOS</option>
+            <option>Говядина вырезка охл.</option>
+          </select>
+        </div>
+        <svg viewBox="0 0 800 280" class="w-full h-72">
+          <defs>
+            <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ef4444" stop-opacity="0.15"/>
+              <stop offset="100%" stop-color="#ef4444" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <line x1="40" y1="40" x2="780" y2="40" stroke="#f1f5f9"/>
+          <line x1="40" y1="100" x2="780" y2="100" stroke="#f1f5f9"/>
+          <line x1="40" y1="160" x2="780" y2="160" stroke="#f1f5f9"/>
+          <line x1="40" y1="220" x2="780" y2="220" stroke="#f1f5f9"/>
+          <text x="32" y="44" fill="#94a3b8" font-size="10" text-anchor="end">2800</text>
+          <text x="32" y="104" fill="#94a3b8" font-size="10" text-anchor="end">2400</text>
+          <text x="32" y="164" fill="#94a3b8" font-size="10" text-anchor="end">2000</text>
+          <text x="32" y="224" fill="#94a3b8" font-size="10" text-anchor="end">1600</text>
+          <!-- max line (red dashed) -->
+          <polyline points="80,150 200,140 320,135 440,90 560,60 680,55 760,52" stroke="#ef4444" stroke-width="2" fill="none" stroke-dasharray="3,3"/>
+          <!-- avg -->
+          <path d="M80,180 L200,175 L320,165 L440,130 L560,100 L680,90 L760,82 L760,260 L80,260 Z" fill="url(#g2)"/>
+          <polyline points="80,180 200,175 320,165 440,130 560,100 680,90 760,82" stroke="#6366f1" stroke-width="2.5" fill="none"/>
+          <!-- min line (green) -->
+          <polyline points="80,210 200,205 320,200 440,170 560,140 680,130 760,118" stroke="#10b981" stroke-width="2" fill="none"/>
+          <!-- dots -->
+          <circle cx="80" cy="180" r="3" fill="#6366f1"/>
+          <circle cx="200" cy="175" r="3" fill="#6366f1"/>
+          <circle cx="320" cy="165" r="3" fill="#6366f1"/>
+          <circle cx="440" cy="130" r="3" fill="#6366f1"/>
+          <circle cx="560" cy="100" r="3" fill="#6366f1"/>
+          <circle cx="680" cy="90" r="3" fill="#6366f1"/>
+          <circle cx="760" cy="82" r="3" fill="#6366f1"/>
+          <text x="80" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Окт</text>
+          <text x="200" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Ноя</text>
+          <text x="320" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Дек</text>
+          <text x="440" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Янв</text>
+          <text x="560" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Фев</text>
+          <text x="680" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Мар</text>
+          <text x="760" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Апр</text>
+          <!-- alert -->
+          <circle cx="440" cy="130" r="8" fill="none" stroke="#ef4444" stroke-width="2"/>
+          <text x="450" y="125" fill="#ef4444" font-size="11" font-weight="600">+18% за месяц</text>
+        </svg>
+        <div class="mt-3 flex gap-6 text-sm">
+          <span class="flex items-center gap-2 text-slate-600"><span class="w-3 h-0.5 bg-red-500"></span>Макс на рынке</span>
+          <span class="flex items-center gap-2 text-slate-600"><span class="w-3 h-0.5 bg-indigo-500"></span>Средняя</span>
+          <span class="flex items-center gap-2 text-slate-600"><span class="w-3 h-0.5 bg-emerald-500"></span>Минимум (Топ-1)</span>
+        </div>
+      </div>
+
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 flex gap-4">
+        <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"></i>
+        <div>
+          <div class="font-semibold text-amber-900">Аномальный рост цен — 3 позиции</div>
+          <div class="text-sm text-amber-800 mt-1">Сыр Пармезан 36 мес <span class="font-semibold">+18%</span>, Говядина вырезка <span class="font-semibold">+12%</span>, Лосось филе с/м <span class="font-semibold">+9%</span> за последний месяц. Рекомендуется переторг или замена поставщика.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SUPPLIERS ============ -->
+    <div id="page-suppliers" class="page p-8">
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-4 flex gap-4">
+        <i data-lucide="info" class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
+        <div>
+          <div class="font-semibold text-blue-900">Поставщики продолжают заполнять матрицы в Google Sheets</div>
+          <div class="text-sm text-blue-800 mt-1">Им ничего не нужно менять. Система автоматически забирает обновления из Google Drive каждый час.</div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100">
+          <h3 class="font-semibold text-slate-900">Поставщики · 8 активных</h3>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
+            <tr>
+              <th class="px-6 py-3 text-left">Поставщик</th>
+              <th class="px-6 py-3 text-left">Категории</th>
+              <th class="px-6 py-3 text-right">Позиций</th>
+              <th class="px-6 py-3 text-right">В Топ-1</th>
+              <th class="px-6 py-3 text-left">Обновлено</th>
+              <th class="px-6 py-3 text-left">Матрица</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 font-medium">Глобал Фудс</td>
+              <td class="px-6 py-3 text-slate-600 text-xs">Молочка, Сыры</td>
+              <td class="px-6 py-3 text-right">142</td>
+              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">38</span></td>
+              <td class="px-6 py-3 text-slate-500 text-xs">2 часа назад</td>
+              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 font-medium">ТК УМАЙ</td>
+              <td class="px-6 py-3 text-slate-600 text-xs">Сыры, Бакалея</td>
+              <td class="px-6 py-3 text-right">98</td>
+              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">22</span></td>
+              <td class="px-6 py-3 text-slate-500 text-xs">сегодня в 11:30</td>
+              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 font-medium">ЮФС</td>
+              <td class="px-6 py-3 text-slate-600 text-xs">Мясо, Рыба</td>
+              <td class="px-6 py-3 text-right">76</td>
+              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">19</span></td>
+              <td class="px-6 py-3 text-slate-500 text-xs">вчера в 18:42</td>
+              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 font-medium">УРАЛ ФУД</td>
+              <td class="px-6 py-3 text-slate-600 text-xs">Мясо</td>
+              <td class="px-6 py-3 text-right">54</td>
+              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">31</span></td>
+              <td class="px-6 py-3 text-slate-500 text-xs">сегодня в 09:15</td>
+              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 font-medium">Восток-Запад</td>
+              <td class="px-6 py-3 text-slate-600 text-xs">Молочка</td>
+              <td class="px-6 py-3 text-right">41</td>
+              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">15</span></td>
+              <td class="px-6 py-3 text-slate-500 text-xs">сегодня в 12:08</td>
+              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 font-medium">ЕвроСиб-Трейд</td>
+              <td class="px-6 py-3 text-slate-600 text-xs">Бакалея, Консервация</td>
+              <td class="px-6 py-3 text-right">187</td>
+              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">62</span></td>
+              <td class="px-6 py-3 text-amber-600 text-xs">3 дня назад</td>
+              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 font-medium">Глобал Фудс</td>
+              <td class="px-6 py-3 text-slate-600 text-xs">Шоколад</td>
+              <td class="px-6 py-3 text-right">28</td>
+              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">12</span></td>
+              <td class="px-6 py-3 text-slate-500 text-xs">сегодня в 13:50</td>
+              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3 font-medium">ЮФС</td>
+              <td class="px-6 py-3 text-slate-600 text-xs">Рыба и морепродукты</td>
+              <td class="px-6 py-3 text-right">52</td>
+              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">18</span></td>
+              <td class="px-6 py-3 text-slate-500 text-xs">вчера в 14:00</td>
+              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ MAPPING ============ -->
+    <div id="page-mapping" class="page p-8">
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-4 flex gap-4">
+        <i data-lucide="alert-circle" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"></i>
+        <div class="flex-1">
+          <div class="font-semibold text-amber-900">12 позиций требуют сопоставления</div>
+          <div class="text-sm text-amber-800 mt-1">Новые товары из выгрузки iiko/StoreHouse, которых ещё нет в карте позиций.</div>
+        </div>
+        <button class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium">Сопоставить</button>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 class="font-semibold text-slate-900">Карта позиций · Шоколад</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Связывает названия у поставщиков с номенклатурой StoreHouse и iiko</p>
+          </div>
+          <button class="flex items-center gap-1.5 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium">
+            <i data-lucide="plus" class="w-4 h-4"></i> Добавить
+          </button>
+        </div>
+
+        <div class="px-6 py-3 border-b border-slate-100 flex gap-2 flex-wrap text-sm">
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Молочка</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Сыры</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Мясо</button>
+          <button class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full font-medium">Шоколад</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Бакалея</button>
+          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Консервация</button>
+        </div>
+
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
+            <tr>
+              <th class="px-6 py-3 text-left">Название у поставщика</th>
+              <th class="px-6 py-3 text-left">StoreHouse</th>
+              <th class="px-6 py-3 text-left">SH сыр</th>
+              <th class="px-6 py-3 text-left">«TEHNIKUM»</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3">Sikao Белая шоколадная масса Легкоплавкие диски</td>
+              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Белый 25%</td>
+              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Белый 25%</td>
+              <td class="px-6 py-3 text-slate-700">*ШОКОЛАД БЕЛЫЙ 25%</td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3">Шоколадная масса белая 27% диски (CHW-U1934-91A), 20кг</td>
+              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Белый 25%</td>
+              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Белый 25%</td>
+              <td class="px-6 py-3 text-slate-400 italic">—</td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3">Молочная шоколадная масса CHD-T2332-411 30%, ООО Барри Каллебаут</td>
+              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Молочный 33%</td>
+              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Молочный 33%</td>
+              <td class="px-6 py-3 text-slate-400 italic">—</td>
+            </tr>
+            <tr class="hover:bg-slate-50">
+              <td class="px-6 py-3">Тёмная шоколадная масса CHD-G11RU-411 54%, ООО Барри Каллебаут</td>
+              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Тёмный 54%</td>
+              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Тёмный 54%</td>
+              <td class="px-6 py-3 text-slate-400 italic">—</td>
+            </tr>
+            <tr class="hover:bg-slate-50 bg-amber-50/30">
+              <td class="px-6 py-3 flex items-center gap-2">
+                <i data-lucide="alert-circle" class="w-4 h-4 text-amber-500"></i>
+                Какао-масса 100% Callebaut
+              </td>
+              <td class="px-6 py-3 text-slate-400 italic">не сопоставлено</td>
+              <td class="px-6 py-3 text-slate-400 italic">не сопоставлено</td>
+              <td class="px-6 py-3 text-slate-400 italic">не сопоставлено</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ CEO ============ -->
+    <div id="page-ceo" class="page p-8">
+      <div class="max-w-4xl mx-auto">
+        <div class="bg-white rounded-2xl border border-slate-200 p-10 shadow-sm">
+          <div class="flex items-center gap-3 mb-6 pb-6 border-b border-slate-100">
+            <div class="w-12 h-12 rounded-xl gradient-card flex items-center justify-center">
+              <i data-lucide="sparkles" class="w-6 h-6 text-white"></i>
+            </div>
+            <div class="flex-1">
+              <h2 class="text-2xl font-bold text-slate-900">Сводка для CEO</h2>
+              <p class="text-sm text-slate-500">Период: 1–30 апреля 2026 · Сформировано AI · 06.05 в 14:23</p>
+            </div>
+            <button class="text-sm text-indigo-600 hover:underline flex items-center gap-1">
+              <i data-lucide="download" class="w-4 h-4"></i> PDF
+            </button>
+          </div>
+
+          <div class="space-y-6 text-slate-800 leading-relaxed">
+            <p class="text-lg text-slate-900 font-medium">
+              За апрель сеть переплатила <span class="text-red-600 font-bold">487 320 ₽</span> относительно рекомендованных Топ-2 цен. Это на <span class="text-emerald-600 font-bold">12% меньше</span>, чем в марте — дисциплина растёт.
+            </p>
+
+            <div class="bg-slate-50 rounded-xl p-5">
+              <h4 class="font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                <i data-lucide="trending-up" class="w-4 h-4 text-red-500"></i>
+                Где сильнее всего выросли цены
+              </h4>
+              <ul class="space-y-2 text-sm">
+                <li class="flex items-start gap-2">
+                  <span class="text-red-500 mt-0.5">●</span>
+                  <span><b>Сыры</b> — +18% за месяц, особенно Пармезан 36 мес. (поставщик «ТК УМАЙ» поднял цену с 2 380 до 2 810 ₽/кг). Рекомендация: <b>переторг</b> или переключение на «Метро Кэш».</span>
+                </li>
+                <li class="flex items-start gap-2">
+                  <span class="text-red-500 mt-0.5">●</span>
+                  <span><b>Мясо</b> — Говядина вырезка +12%, эффект на себестоимость 4 ключевых блюд.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                  <span class="text-red-500 mt-0.5">●</span>
+                  <span><b>Рыба</b> — Лосось филе с/м +9%, поставщик «ЮФС» удерживает Топ-1, рост в рамках сезона.</span>
+                </li>
+              </ul>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-5">
+              <h4 class="font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-500"></i>
+                Самая большая переплата (топ-5)
+              </h4>
+              <ol class="space-y-2 text-sm list-decimal list-inside">
+                <li><b>Сыр Пармезан</b> — переплата <b>142 800 ₽</b> («TEHNIKUM», 4 случая, поставщик не из Топ-2)</li>
+                <li><b>Майонез Провансаль 10 кг</b> — переплата <b>76 220 ₽</b> («Чум», причина «нет наличия»)</li>
+                <li><b>Лосось филе</b> — переплата <b>62 100 ₽</b> («Посейдон», 3 случая, причина не указана)</li>
+                <li><b>Говядина вырезка</b> — переплата <b>54 380 ₽</b> («Чум», «срочный заказ»)</li>
+                <li><b>Шоколад тёмный 54%</b> — переплата <b>31 200 ₽</b> («Дача», 2 случая)</li>
+              </ol>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-5">
+              <h4 class="font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                <i data-lucide="users" class="w-4 h-4 text-indigo-500"></i>
+                Кто чаще всего отклоняется
+              </h4>
+              <ul class="space-y-2 text-sm">
+                <li>1. <b>«Ван Гоги»</b> — 43% дисциплины, 67 отклонений. Шеф Гобеджишвили Г.Н. — нужен разбор.</li>
+                <li>2. <b>«TEHNIKUM»</b> — 48% дисциплины, особенно по сырам (Пармезан).</li>
+                <li>3. <b>«Дача»</b> — 61%, отклоняется на премиум-позициях шоколада.</li>
+              </ul>
+            </div>
+
+            <div class="bg-slate-50 rounded-xl p-5">
+              <h4 class="font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                <i data-lucide="message-square" class="w-4 h-4 text-purple-500"></i>
+                Топ причин отклонений
+              </h4>
+              <div class="space-y-2 text-sm">
+                <div class="flex items-center justify-between">
+                  <span>Нет наличия у Топ-1</span>
+                  <span class="text-slate-500">38%</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span>Срочный заказ / горящая поставка</span>
+                  <span class="text-slate-500">24%</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span>Качество (предпочтение шефа)</span>
+                  <span class="text-slate-500">17%</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span>Не указано</span>
+                  <span class="text-amber-600 font-medium">21%</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-5">
+              <h4 class="font-semibold text-indigo-900 mb-3 flex items-center gap-2">
+                <i data-lucide="target" class="w-4 h-4"></i>
+                Что делать (3 действия)
+              </h4>
+              <ol class="space-y-3 text-sm list-decimal list-inside text-indigo-900">
+                <li><b>Переторг с «ТК УМАЙ»</b> по сырам — потенциал экономии до 140 000 ₽/мес. Альтернатива — переключение на «Метро Кэш» (текущий Топ-1).</li>
+                <li><b>Разбор с шеф-поваром «Ван Гоги»</b> — самая низкая дисциплина в сети, объяснимо около половины отклонений. Цель: довести до 65%+.</li>
+                <li><b>Добавить аларм</b> на «нет наличия» у Топ-1 — 38% всех отклонений. Если поставщик регулярно не имеет в наличии — это повод для переторга, а не покупки у Топ-3.</li>
+              </ol>
+            </div>
+
+            <div class="pt-4 border-t border-slate-100 text-sm text-slate-600">
+              <b>KPI «Закупки vs Инфляция»:</b> рост закупок группы A за апрель <span class="text-red-600 font-semibold">+1.8%</span>, инфляция Росстата <span class="text-slate-700 font-semibold">+0.6%</span>. Закупки растут быстрее рынка — следить за переторгами.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ INFLATION ============ -->
+    <div id="page-inflation" class="page p-8">
+      <div class="bg-white rounded-xl border border-slate-200 p-6 mb-4">
+        <h3 class="font-semibold text-slate-900 mb-1">KPI: Закупки vs Инфляция</h3>
+        <p class="text-xs text-slate-500 mb-5">Эффективность закупок — растём ли мы быстрее или медленнее рынка</p>
+
+        <div class="grid grid-cols-3 gap-4 mb-6">
+          <div class="border border-slate-200 rounded-lg p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Рост закупок A</div>
+            <div class="text-2xl font-bold text-red-600">+1.8%</div>
+            <div class="text-xs text-slate-500">апрель 2026</div>
+          </div>
+          <div class="border border-slate-200 rounded-lg p-4">
+            <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Инфляция РФ</div>
+            <div class="text-2xl font-bold text-slate-700">+0.6%</div>
+            <div class="text-xs text-slate-500">Росстат, апрель 2026</div>
+          </div>
+          <div class="border border-red-200 bg-red-50 rounded-lg p-4">
+            <div class="text-xs text-red-700 uppercase tracking-wide mb-1">Дельта</div>
+            <div class="text-2xl font-bold text-red-700">+1.2 п.п.</div>
+            <div class="text-xs text-red-600">хуже рынка</div>
+          </div>
+        </div>
+
+        <svg viewBox="0 0 800 220" class="w-full h-56">
+          <line x1="40" y1="40" x2="780" y2="40" stroke="#f1f5f9"/>
+          <line x1="40" y1="100" x2="780" y2="100" stroke="#f1f5f9"/>
+          <line x1="40" y1="160" x2="780" y2="160" stroke="#f1f5f9"/>
+          <text x="32" y="44" fill="#94a3b8" font-size="10" text-anchor="end">+3%</text>
+          <text x="32" y="104" fill="#94a3b8" font-size="10" text-anchor="end">+1%</text>
+          <text x="32" y="164" fill="#94a3b8" font-size="10" text-anchor="end">−1%</text>
+          <!-- bars -->
+          <rect x="80" y="80" width="20" height="20" fill="#6366f1" rx="2"/>
+          <rect x="105" y="90" width="20" height="10" fill="#cbd5e1" rx="2"/>
+          <rect x="200" y="70" width="20" height="30" fill="#6366f1" rx="2"/>
+          <rect x="225" y="85" width="20" height="15" fill="#cbd5e1" rx="2"/>
+          <rect x="320" y="60" width="20" height="40" fill="#6366f1" rx="2"/>
+          <rect x="345" y="80" width="20" height="20" fill="#cbd5e1" rx="2"/>
+          <rect x="440" y="50" width="20" height="50" fill="#6366f1" rx="2"/>
+          <rect x="465" y="78" width="20" height="22" fill="#cbd5e1" rx="2"/>
+          <rect x="560" y="40" width="20" height="60" fill="#6366f1" rx="2"/>
+          <rect x="585" y="75" width="20" height="25" fill="#cbd5e1" rx="2"/>
+          <rect x="680" y="35" width="20" height="65" fill="#ef4444" rx="2"/>
+          <rect x="705" y="78" width="20" height="22" fill="#cbd5e1" rx="2"/>
+          <text x="100" y="215" fill="#94a3b8" font-size="10" text-anchor="middle">Ноя</text>
+          <text x="220" y="215" fill="#94a3b8" font-size="10" text-anchor="middle">Дек</text>
+          <text x="340" y="215" fill="#94a3b8" font-size="10" text-anchor="middle">Янв</text>
+          <text x="460" y="215" fill="#94a3b8" font-size="10" text-anchor="middle">Фев</text>
+          <text x="580" y="215" fill="#94a3b8" font-size="10" text-anchor="middle">Мар</text>
+          <text x="700" y="215" fill="#94a3b8" font-size="10" text-anchor="middle">Апр</text>
+        </svg>
+        <div class="flex gap-6 text-sm mt-3">
+          <span class="flex items-center gap-2 text-slate-600"><span class="w-3 h-3 rounded bg-indigo-500"></span>Рост закупок (группа A)</span>
+          <span class="flex items-center gap-2 text-slate-600"><span class="w-3 h-3 rounded bg-slate-300"></span>Инфляция РФ (Росстат)</span>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-6">
+        <h4 class="font-semibold text-slate-900 mb-3 flex items-center gap-2">
+          <i data-lucide="sparkles" class="w-4 h-4 text-indigo-500"></i>
+          AI-вывод за апрель
+        </h4>
+        <p class="text-sm text-slate-700 leading-relaxed">
+          Закупки сети «Максим» растут <b>в 3 раза быстрее официальной инфляции</b> (+1.8% против +0.6%). Основной вклад вносят 3 категории: сыры (+18%), мясо (+12%), рыба (+9%). Сыры — внепланово; рыба — сезон. Если ничего не делать с сырами, годовой рост превысит инфляцию на 14–18 п.п. — это около <b>1.6 млн ₽ переплат</b> за год.
+        </p>
+        <p class="text-sm text-slate-700 leading-relaxed mt-3">
+          <b>Рекомендуемая цель на май:</b> вернуться к +0.5..0.8% по группе A. Драйвер — переторг с «ТК УМАЙ» по Пармезану и поиск второго поставщика по премиальным сырам.
+        </p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- RECALC OVERLAY -->
+<div id="recalc-overlay" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm hidden items-center justify-center z-50">
+  <div class="bg-white rounded-2xl p-8 w-96 shadow-2xl">
+    <div class="flex items-center gap-3 mb-4">
+      <div class="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
+        <i data-lucide="refresh-cw" class="w-5 h-5 text-indigo-600 animate-spin"></i>
+      </div>
+      <div>
+        <div class="font-semibold text-slate-900">Пересчёт системы</div>
+        <div class="text-xs text-slate-500" id="recalc-step">Подключение к Google Drive...</div>
+      </div>
+    </div>
+    <div class="h-2 bg-slate-100 rounded-full overflow-hidden mb-3">
+      <div id="recalc-progress" class="progress-fill h-full bg-indigo-600 rounded-full" style="width: 0%"></div>
+    </div>
+    <div class="text-xs text-slate-500" id="recalc-time">0 сек</div>
+  </div>
+</div>
+
+<script>
+  lucide.createIcons();
+
+  const titles = {
+    dashboard: ['Главная', 'Обзор закупок'],
+    recommendations: ['Рекомендации', 'Топ-2 для шефов'],
+    analysis: ['Анализ', 'Отклонения и переплаты'],
+    prices: ['Динамика', 'История цен'],
+    suppliers: ['Поставщики', 'Список и статус матриц'],
+    mapping: ['Справочник', 'Карта позиций'],
+    ceo: ['Управление', 'Сводка для CEO'],
+    inflation: ['Управление', 'Закупки vs Инфляция'],
+  };
+
+  function navigate(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    document.querySelector(`[data-page="${page}"]`).classList.add('active');
+    const [crumb, title] = titles[page];
+    document.getElementById('breadcrumb').textContent = crumb;
+    document.getElementById('page-title').textContent = title;
+    lucide.createIcons();
+    document.querySelector('main').scrollTo(0, 0);
+  }
+
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', e => {
+      e.preventDefault();
+      navigate(item.dataset.page);
+    });
+  });
+
+  function runRecalc() {
+    const overlay = document.getElementById('recalc-overlay');
+    const progress = document.getElementById('recalc-progress');
+    const stepEl = document.getElementById('recalc-step');
+    const timeEl = document.getElementById('recalc-time');
+
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flex');
+
+    const steps = [
+      { pct: 15, text: 'Чтение матриц поставщиков (8 файлов)...', t: 8 },
+      { pct: 35, text: 'Формирование Топ-2 по 1 234 позициям...', t: 18 },
+      { pct: 55, text: 'Загрузка выгрузки iiko/StoreHouse...', t: 28 },
+      { pct: 75, text: 'Сопоставление с картой позиций...', t: 36 },
+      { pct: 90, text: 'Расчёт отклонений и переплат...', t: 43 },
+      { pct: 100, text: 'Готово ✓', t: 47 },
+    ];
+
+    let i = 0;
+    const tick = () => {
+      if (i >= steps.length) {
+        setTimeout(() => {
+          overlay.classList.add('hidden');
+          overlay.classList.remove('flex');
+        }, 600);
+        return;
+      }
+      const s = steps[i++];
+      progress.style.width = s.pct + '%';
+      stepEl.textContent = s.text;
+      timeEl.textContent = s.t + ' сек';
+      setTimeout(tick, 700);
+    };
+    tick();
+  }
+</script>
+
+</body>
+</html>
