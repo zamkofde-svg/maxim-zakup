@@ -50,7 +50,7 @@
     <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
       <a href="#" data-page="dashboard" class="nav-item active flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
         <i data-lucide="layout-dashboard" class="w-4 h-4 text-slate-500"></i>
-        Обзор
+        Дашборд
       </a>
       <a href="#" data-page="recommendations" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
         <i data-lucide="trophy" class="w-4 h-4 text-slate-500"></i>
@@ -93,8 +93,8 @@
           <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
           Последний пересчёт
         </div>
-        <div class="text-sm font-medium text-slate-900">06.05 в 14:22</div>
-        <div class="text-xs text-slate-500 mt-0.5">занял 47 секунд</div>
+        <div class="text-sm font-medium text-slate-900" id="last-import-time">—</div>
+        <div class="text-xs text-slate-500 mt-0.5" id="last-import-sub">данных нет</div>
       </div>
     </div>
   </aside>
@@ -107,15 +107,13 @@
       <div class="flex items-center justify-between">
         <div>
           <div class="text-xs text-slate-500" id="breadcrumb">Главная</div>
-          <h1 class="text-xl font-bold text-slate-900" id="page-title">Обзор закупок</h1>
+          <h1 class="text-xl font-bold text-slate-900" id="page-title">Дашборд</h1>
         </div>
         <div class="flex items-center gap-3">
           <div class="flex items-center gap-2 text-sm text-slate-600">
             <i data-lucide="calendar" class="w-4 h-4"></i>
-            <select class="bg-transparent border border-slate-200 rounded-lg px-3 py-1.5 text-sm">
-              <option>Апрель 2026</option>
-              <option>Март 2026</option>
-              <option>Февраль 2026</option>
+            <select id="period-select" class="bg-transparent border border-slate-200 rounded-lg px-3 py-1.5 text-sm">
+              <option value="">все периоды</option>
             </select>
           </div>
           <button onclick="runRecalc()" id="recalc-btn" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
@@ -1218,7 +1216,7 @@
   lucide.createIcons();
 
   const titles = {
-    dashboard: ['Главная', 'Обзор закупок'],
+    dashboard: ['Главная', 'Дашборд'],
     recommendations: ['Рекомендации', 'Топ-2 для шефов'],
     analysis: ['Анализ', 'Отклонения и переплаты'],
     prices: ['Динамика', 'История цен'],
@@ -1238,6 +1236,12 @@
     document.getElementById('page-title').textContent = title;
     lucide.createIcons();
     document.querySelector('main').scrollTo(0, 0);
+
+    // Ленивая загрузка для тяжёлых страниц
+    if (page === 'ceo' && !document.getElementById('page-ceo').dataset.loaded) {
+      document.getElementById('page-ceo').dataset.loaded = '1';
+      hydrateCEOSummary();
+    }
   }
 
   document.querySelectorAll('.nav-item').forEach(item => {
@@ -1317,11 +1321,25 @@
     const summary = await tryFetch(`${API_BASE}/dashboard/summary`);
     if (!summary) return;
 
-    // KPI 1: Переплата
+    const noOverpayment = !summary.total_overpayment || summary.total_overpayment === 0;
+
+    // KPI 1: Переплата за период
     const kpiOver = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(1) .text-3xl');
-    if (kpiOver) kpiOver.textContent = fmtRub(summary.total_overpayment);
     const kpiOverSub = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(1) .text-sm');
-    if (kpiOverSub) kpiOverSub.textContent = summary.total_external_purchases + ' внешних закупок';
+    if (noOverpayment) {
+      // Нет реальных данных — показываем пример, как будет
+      if (kpiOver) {
+        kpiOver.innerHTML = '487 320 ₽ <span class="text-xs font-normal text-slate-400">пример</span>';
+        kpiOver.classList.add('text-slate-400');
+      }
+      if (kpiOverSub) kpiOverSub.textContent = 'появится при росте цен у поставщиков';
+    } else {
+      if (kpiOver) {
+        kpiOver.textContent = fmtRub(summary.total_overpayment);
+        kpiOver.classList.remove('text-slate-400');
+      }
+      if (kpiOverSub) kpiOverSub.textContent = summary.total_external_purchases + ' внешних закупок';
+    }
 
     // KPI 2: Доля закупок по Топ-2
     const kpiDisc = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(2) .text-3xl');
@@ -1351,27 +1369,53 @@
     const kpiChefSub = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(4) .text-sm');
     if (kpiChefSub) kpiChefSub.textContent = 'активные матрицы';
 
-    // Footer last import
-    const lastImport = document.querySelector('aside .text-sm.font-medium');
-    if (lastImport && summary.last_import) lastImport.textContent = fmtTime(summary.last_import);
+    // Footer last import — обновляем правильный элемент по ID
+    const lastTime = document.getElementById('last-import-time');
+    const lastSub = document.getElementById('last-import-sub');
+    if (lastTime) lastTime.textContent = summary.last_import ? fmtTime(summary.last_import) : '—';
+    if (lastSub) lastSub.textContent = summary.last_import ? 'данные актуальны' : 'нет данных';
+
+    // График динамики — пометка «пример» если нет истории
+    markChartAsPreview();
 
     // Топ переплат (правый блок)
-    await hydrateTopOverpayments();
+    await hydrateTopOverpayments(noOverpayment);
 
     // Дисциплина по ресторанам
     await hydrateRestaurantsDiscipline();
   }
 
-  async function hydrateTopOverpayments() {
+  function markChartAsPreview() {
+    // На графике динамики ставим бейдж «пример: история накапливается»
+    const chartCard = document.querySelector('#page-dashboard .col-span-2.bg-white');
+    if (!chartCard) return;
+    if (chartCard.dataset.previewMarked) return;
+    chartCard.dataset.previewMarked = '1';
+    const subtitle = chartCard.querySelector('p.text-xs.text-slate-500');
+    if (subtitle) {
+      subtitle.innerHTML = 'Индекс закупочных цен · <span class="text-amber-600">пример — история накапливается, через 2–4 недели здесь будут реальные данные</span>';
+    }
+  }
+
+  async function hydrateTopOverpayments(showExampleIfEmpty = false) {
     const data = await tryFetch(`${API_BASE}/dashboard/top_overpayments?limit=5`);
     if (!data) return;
-    // Найдём левую колонку второй секции — "Топ переплат"
     const block = document.querySelectorAll('#page-dashboard .bg-white.rounded-xl.border .divide-y.divide-slate-100')[0];
     if (!block) return;
+    // Подзаголовок «Все →» в шапке
+    const header = block.parentElement?.querySelector('.font-semibold');
     if (data.length === 0) {
-      block.innerHTML = '<div class="px-6 py-8 text-center text-slate-400 text-sm">Пока нет переплат к показу — нужно больше совпадений Топ-2 с фактом</div>';
+      if (showExampleIfEmpty) {
+        // Оставляем демо-строки, добавляем бейдж «пример»
+        if (header && !header.querySelector('.preview-badge')) {
+          header.innerHTML = 'Топ переплат <span class="preview-badge text-xs font-normal text-amber-600 ml-2">пример</span>';
+        }
+        return;  // не очищаем block — сохраняем исходные mock-строки
+      }
+      block.innerHTML = '<div class="px-6 py-8 text-center text-slate-400 text-sm">Пока нет переплат — нужно больше совпадений Топ-2 с фактом</div>';
       return;
     }
+    if (header) header.textContent = 'Топ переплат';
     block.innerHTML = '';
     for (const d of data) {
       const statusClass = d.status === 'red' ? 'traffic-red' : 'traffic-yellow';
@@ -1494,7 +1538,7 @@
 
     for (const item of data) {
       const tr = document.createElement('tr');
-      tr.className = item.top2 ? 'hover:bg-slate-50' : 'hover:bg-slate-50 opacity-60';
+      tr.className = 'hover:bg-slate-50';
       const unit = item.unit_type === 'kg_or_l' ? '₽/кг·л' : '₽/упак';
       const color = catBadgeColor[item.category] || 'slate';
       const t2 = item.top2;
@@ -1777,9 +1821,78 @@
     }
   }
 
+  // ============ AI: CEO Summary ============
+  async function hydrateCEOSummary(force = false) {
+    const container = document.querySelector('#page-ceo .bg-white.rounded-2xl .space-y-6');
+    if (!container) return;
+    // Заменяем хардкод-текст
+    container.innerHTML = `
+      <div class="text-center py-12">
+        <div class="inline-block w-8 h-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <div class="text-sm text-slate-500 mt-3">Claude генерирует сводку из живых данных...</div>
+      </div>
+    `;
+    const resp = await fetch(`${API_BASE}/ai/ceo_summary${force ? '?force=true' : ''}`, { method: 'POST' });
+    if (!resp.ok) {
+      const err = await resp.text();
+      container.innerHTML = `<div class="text-red-600 p-4 bg-red-50 rounded-lg">Ошибка генерации: ${err.slice(0, 200)}</div>`;
+      return;
+    }
+    const data = await resp.json();
+    container.innerHTML = `
+      <div class="prose prose-slate max-w-none">${renderMarkdown(data.summary_md)}</div>
+      <div class="text-xs text-slate-400 pt-4 border-t border-slate-100">
+        Сгенерировано Claude через OpenRouter · ${fmtTime(data.generated_at)} ${data.cached ? '(из кеша)' : ''}
+        · <a href="#" onclick="event.preventDefault(); hydrateCEOSummary(true);" class="text-indigo-600 hover:underline">обновить</a>
+      </div>
+    `;
+    // Обновим дату в шапке секции
+    const subHead = document.querySelector('#page-ceo .text-sm.text-slate-500');
+    if (subHead) subHead.textContent = `Сформировано AI · ${fmtTime(data.generated_at)}`;
+  }
+
+  function renderMarkdown(md) {
+    // Простой markdown-парсер: **bold**, заголовки, списки, абзацы
+    let html = md
+      .replace(/^### (.*)$/gm, '<h4 class="font-semibold text-slate-900 mt-5 mb-2">$1</h4>')
+      .replace(/^## (.*)$/gm, '<h3 class="font-semibold text-slate-900 mt-5 mb-3 text-lg">$1</h3>')
+      .replace(/^# (.*)$/gm, '<h2 class="font-bold text-slate-900 mt-5 mb-3 text-xl">$1</h2>')
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`(.+?)`/g, '<code class="bg-slate-100 px-1 rounded">$1</code>');
+    // Списки
+    html = html.replace(/^([\-\*\d]+\.?\s.+(?:\n[\-\*\d]+\.?\s.+)*)/gm, (match) => {
+      const isOrdered = /^\d/.test(match);
+      const items = match.split('\n').map(l => l.replace(/^[\-\*\d]+\.?\s/, '').trim()).filter(Boolean);
+      const tag = isOrdered ? 'ol' : 'ul';
+      const cls = isOrdered ? 'list-decimal' : 'list-disc';
+      return `<${tag} class="${cls} list-inside space-y-1 my-3 text-slate-700">${items.map(i => `<li>${i}</li>`).join('')}</${tag}>`;
+    });
+    // Параграфы
+    html = html.split(/\n\n+/).map(p => {
+      if (p.startsWith('<')) return p;
+      return `<p class="text-slate-700 leading-relaxed">${p.replace(/\n/g, '<br>')}</p>`;
+    }).join('\n');
+    return html;
+  }
+
+  async function hydratePeriodSelect() {
+    const periods = await tryFetch(`${API_BASE}/periods`);
+    const sel = document.getElementById('period-select');
+    if (!sel || !periods) return;
+    sel.innerHTML = '<option value="">все периоды</option>';
+    for (const p of periods) {
+      const opt = document.createElement('option');
+      opt.value = p.key;
+      opt.textContent = `${p.label} (${p.count})`;
+      sel.appendChild(opt);
+    }
+  }
+
   // Запускаем гидрацию после первоначальной отрисовки
   window.addEventListener('load', () => {
     hideNotReadyPages();
+    hydratePeriodSelect();
     hydrateDashboard();
     hydrateRecommendations();
     hydrateDeviations();

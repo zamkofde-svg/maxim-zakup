@@ -429,6 +429,35 @@ def sync_status():
     return _sync_state
 
 
+# ============ PERIODS ============
+
+@app.get("/api/periods")
+def periods(db: Session = Depends(get_db)):
+    """Список месяцев, по которым есть данные в purchases_fact."""
+    from sqlalchemy import extract
+    rows = db.execute(
+        select(
+            extract("year", PurchaseFact.date).label("y"),
+            extract("month", PurchaseFact.date).label("m"),
+            func.count(PurchaseFact.id).label("n"),
+        )
+        .group_by("y", "m")
+        .order_by(desc("y"), desc("m"))
+    ).all()
+    months_ru = ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                 "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+    return [
+        {
+            "key": f"{int(r[0])}-{int(r[1]):02d}",
+            "label": f"{months_ru[int(r[1])]} {int(r[0])}",
+            "year": int(r[0]),
+            "month": int(r[1]),
+            "count": r[2],
+        }
+        for r in rows
+    ]
+
+
 # ============ EXTENDED DASHBOARD ============
 
 @app.get("/api/dashboard/top_overpayments")
@@ -454,6 +483,117 @@ def top_overpayments(db: Session = Depends(get_db), limit: int = 5):
         }
         for dev, pf, sup, rest in rows
     ]
+
+
+# ============ AI: CEO SUMMARY via OpenRouter ============
+
+import os
+import json
+import urllib.request
+import urllib.error
+
+OPENROUTER_KEY_FILE = Path.home() / ".config" / "maxim-zakup" / "openrouter.env"
+_openrouter_key_cache: Optional[str] = None
+_ai_cache: dict = {"summary": None, "generated_at": None}
+
+
+def _load_openrouter_key() -> Optional[str]:
+    global _openrouter_key_cache
+    if _openrouter_key_cache:
+        return _openrouter_key_cache
+    if not OPENROUTER_KEY_FILE.exists():
+        return None
+    text = OPENROUTER_KEY_FILE.read_text().strip()
+    for line in text.splitlines():
+        if line.startswith("OPENROUTER_API_KEY="):
+            _openrouter_key_cache = line.split("=", 1)[1].strip()
+            return _openrouter_key_cache
+    return None
+
+
+def _call_openrouter(prompt: str, model: str = "anthropic/claude-sonnet-4") -> str:
+    key = _load_openrouter_key()
+    if not key:
+        raise HTTPException(500, "OpenRouter API key не настроен")
+
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 2000,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://openrouter.ai/api/v1/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://maxim-zakup.local",
+            "X-Title": "Maxim Zakup",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read())
+            return data["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise HTTPException(502, f"OpenRouter error {e.code}: {body[:500]}")
+    except Exception as e:
+        raise HTTPException(502, f"OpenRouter call failed: {e}")
+
+
+def _build_ceo_context(db: Session) -> dict:
+    """Собираем фактическую сводку для AI."""
+    summary_data = dashboard_summary(db)
+    top_over = top_overpayments(db, limit=5)
+    discipline = restaurants_discipline(db)
+    sups = list_suppliers(db, only_with_quotes=True)
+    unmapped = list_unmapped(db, limit=10)
+
+    return {
+        "period": "за весь период загруженных данных",
+        "total_overpayment": summary_data["total_overpayment"],
+        "total_external_purchases": summary_data["total_external_purchases"],
+        "discipline_pct": summary_data["discipline_pct"],
+        "status_counts": summary_data["status_counts"],
+        "top_overpayments": top_over,
+        "restaurants_discipline": discipline[:8],
+        "suppliers_with_quotes": [{"name": s["name"], "quotes": s["quotes_count"], "top1": s["top1_count"]} for s in sups],
+        "unmapped_examples": [{"name": u["raw_name"], "count": u["occurrence_count"]} for u in unmapped],
+    }
+
+
+@app.post("/api/ai/ceo_summary")
+def generate_ceo_summary(db: Session = Depends(get_db), force: bool = Query(False)):
+    """Генерирует CEO-сводку через OpenRouter (Claude). Кеширует на час."""
+    if not force and _ai_cache.get("summary") and _ai_cache.get("generated_at"):
+        age = (datetime.utcnow() - _ai_cache["generated_at"]).total_seconds()
+        if age < 3600:
+            return {"summary_md": _ai_cache["summary"], "generated_at": _ai_cache["generated_at"].isoformat(), "cached": True}
+
+    ctx = _build_ceo_context(db)
+    prompt = f"""Ты — управленческий аналитик закупок ресторанной сети «Максим» (Тюмень).
+Сделай краткую сводку для CEO в формате Markdown.
+
+Структура:
+1. **Главная цифра** — одна-две строки (общая переплата vs Топ-2, доля закупок по Топ-2)
+2. **Где теряем больше всего** — топ-3 позиции по переплате с пояснением что делать
+3. **Дисциплина шефов** — топ-3 ресторана с худшей и лучшей дисциплиной
+4. **Что требует внимания закупщика** — нераспознанные позиции, нужно дополнить карту
+5. **Рекомендации** — 2-3 конкретных действия
+
+Стиль: деловой, по делу, без воды. Цифры в рублях с пробелами как разделителями.
+Если данных мало (например переплата = 0, мало совпадений) — честно скажи об этом, объясни почему
+(период факта может не совпадать с актуальными ценами, не все поставщики ещё подгрузили цены).
+
+ДАННЫЕ:
+{json.dumps(ctx, ensure_ascii=False, indent=2)}
+"""
+    text = _call_openrouter(prompt)
+    _ai_cache["summary"] = text
+    _ai_cache["generated_at"] = datetime.utcnow()
+    return {"summary_md": text, "generated_at": _ai_cache["generated_at"].isoformat(), "cached": False}
 
 
 # ============ STATIC FRONTEND ============
