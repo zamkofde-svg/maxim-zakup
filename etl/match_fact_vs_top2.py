@@ -28,19 +28,26 @@ from parse_fact_iiko import parse_iiko, PurchaseFact
 from parse_fact_storehouse import parse_storehouse
 
 SAMPLES = Path(__file__).parent.parent / "sample-data"
+DRIVE = SAMPLES / "drive-sync"
 
+# Используем матрицы из Drive (актуальные). Имя «ООО ...» — как в самом названии файла.
 SUPPLIERS_MATRICES = [
-    ("ООО УРАЛ ФУД",       SAMPLES / "ural_food.xlsx"),
-    ("ООО ЕвроСиб-Трейд",  SAMPLES / "eurosib_trade.xlsx"),
+    ("ООО УРАЛ ФУД",                DRIVE / "ООО УРАЛ ФУД.xlsx"),
+    ("ООО Метро Кэш энд Керри",     DRIVE / "ООО Метро Кэш энд Керри.xlsx"),
+    ("ООО Орбита и К",              DRIVE / "ООО Орбита и К.xlsx"),
+    ("ООО ЕвроСиб-Трейд",           DRIVE / "ООО ЕвроСиб-Трейд.xlsx"),
 ]
 
-MAPPING_FILE = SAMPLES / "mapping.xlsx"
+MAPPING_FILE = DRIVE / "Карта сопоставлений.xlsx"
 
-# Файлы факта закупок и какая в них система учёта (наше предположение, пользователь уточнит)
+# Файлы факта закупок (пока локально, потом тоже из Drive)
 FACT_FILES = [
     {"path": SAMPLES / "iiko_or_sh_1.xls",  "format": "storehouse", "system": "SH"},
     {"path": SAMPLES / "iiko_or_sh_2.xlsx", "format": "iiko",       "system": "SH"},
 ]
+
+# Поставщики, которых считаем «внутренними» — это не закупки, а перемещения
+INTERNAL_SUPPLIERS_SUBSTRINGS = ["Цех", "Производство"]
 
 
 def normalize(s: str | None) -> str:
@@ -135,8 +142,15 @@ def main():
     unmapped_products = Counter()
     unmapped_suppliers = Counter()
     no_top2_examples = []
+    internal_count = 0
 
     for fact, system in all_facts:
+        # Фильтр: внутренние перемещения (Цех/Производство и т.п.)
+        if any(s in fact.supplier for s in INTERNAL_SUPPLIERS_SUBSTRINGS):
+            internal_count += 1
+            buckets["internal"] += 1
+            continue
+
         # Шаг A: канонизировать поставщика
         norm_sup = normalize(fact.supplier)
         canonical_supplier = sup_alias_idx.get(norm_sup) or fact.supplier
@@ -201,7 +215,9 @@ def main():
     print("РЕЗУЛЬТАТ СВЕРКИ")
     print("=" * 70)
     print(f"\nВсего фактов закупок: {len(all_facts)}")
-    print(f"\nРаспределение:")
+    print(f"  из них внутренние перемещения (Цех/Производство): {internal_count}  — исключены из сверки")
+    print(f"  внешние закупки: {len(all_facts) - internal_count}")
+    print(f"\nРаспределение по внешним закупкам:")
     print(f"  🟢 По Топ-2 или дешевле:        {buckets['green_top2']:>5}")
     print(f"  🟡 Дороже на 0–15%:              {buckets['yellow']:>5}")
     print(f"  🔴 Дороже на 15%+:               {buckets['red']:>5}")

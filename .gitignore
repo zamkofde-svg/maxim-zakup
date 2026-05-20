@@ -18,6 +18,17 @@ venv/
 .env
 .env.local
 
+# Credentials — НИКОГДА не коммитим
+*.json.key
+service_account*.json
+credentials*.json
+sa.json
+*-credentials.json
+secrets/
+
+# Drive snapshot — обновляется автоматически, не коммитим
+sample-data/drive-sync/
+
 # Node (на будущее)
 node_modules/
 dist/
