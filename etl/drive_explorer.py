@@ -6,6 +6,7 @@
 Требует: ~/.config/maxim-zakup/sa.json
 """
 from __future__ import annotations
+import json
 import os
 from pathlib import Path
 from google.oauth2 import service_account
@@ -16,9 +17,15 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 
 def get_service():
-    creds = service_account.Credentials.from_service_account_file(
-        str(SA_PATH), scopes=SCOPES
-    )
+    env_content = os.environ.get("GOOGLE_SA_JSON_CONTENT")
+    if env_content:
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(env_content), scopes=SCOPES
+        )
+    else:
+        creds = service_account.Credentials.from_service_account_file(
+            str(SA_PATH), scopes=SCOPES
+        )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 

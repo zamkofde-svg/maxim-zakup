@@ -44,6 +44,19 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # Если БД пустая (после старта в облаке) — автоматически синкаем
+    db = SessionLocal()
+    try:
+        n_products = db.scalar(select(func.count(ProductMaster.id))) or 0
+    finally:
+        db.close()
+    if n_products == 0:
+        try:
+            print("→ Auto-sync: БД пустая, запускаю синхронизацию из Drive...")
+            import threading
+            threading.Thread(target=_do_sync, daemon=True).start()
+        except Exception as e:
+            print(f"Auto-sync ошибка: {e}")
 
 
 # ============ HEALTH / STATS ============
@@ -501,13 +514,18 @@ def _load_openrouter_key() -> Optional[str]:
     global _openrouter_key_cache
     if _openrouter_key_cache:
         return _openrouter_key_cache
-    if not OPENROUTER_KEY_FILE.exists():
-        return None
-    text = OPENROUTER_KEY_FILE.read_text().strip()
-    for line in text.splitlines():
-        if line.startswith("OPENROUTER_API_KEY="):
-            _openrouter_key_cache = line.split("=", 1)[1].strip()
-            return _openrouter_key_cache
+    # 1) ENV — приоритет (облако)
+    env_key = os.environ.get("OPENROUTER_API_KEY")
+    if env_key:
+        _openrouter_key_cache = env_key.strip()
+        return _openrouter_key_cache
+    # 2) Файл (локалка)
+    if OPENROUTER_KEY_FILE.exists():
+        text = OPENROUTER_KEY_FILE.read_text().strip()
+        for line in text.splitlines():
+            if line.startswith("OPENROUTER_API_KEY="):
+                _openrouter_key_cache = line.split("=", 1)[1].strip()
+                return _openrouter_key_cache
     return None
 
 
