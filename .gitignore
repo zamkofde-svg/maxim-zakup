@@ -29,6 +29,10 @@ secrets/
 # Drive snapshot — обновляется автоматически, не коммитим
 sample-data/drive-sync/
 
+# Local SQLite БД — не коммитим, генерируется импортом
+backend/data.db
+backend/data.db-journal
+
 # Node (на будущее)
 node_modules/
 dist/

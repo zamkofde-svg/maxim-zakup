@@ -1282,6 +1282,144 @@
     };
     tick();
   }
+
+  // =========================================================
+  // API integration: подменяет демо-данные на живые из бэкенда
+  // Если API недоступен (GitHub Pages, нет CORS) — остаются демо
+  // =========================================================
+  const API_BASE = '/api';  // когда FastAPI отдаёт и статику, и API
+
+  async function tryFetch(url) {
+    try {
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function fmtRub(n) {
+    return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n)) + ' ₽';
+  }
+
+  async function hydrateDashboard() {
+    const summary = await tryFetch(`${API_BASE}/dashboard/summary`);
+    if (!summary) return;
+
+    // KPI 1: Переплата
+    const kpiOver = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(1) .text-3xl');
+    if (kpiOver) kpiOver.textContent = fmtRub(summary.total_overpayment);
+
+    // KPI 2: Дисциплина
+    const kpiDisc = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(2) .text-3xl');
+    if (kpiDisc) kpiDisc.textContent = summary.discipline_pct.toFixed(0) + '%';
+
+    // KPI 3: Аномальный рост (нет данных пока)
+    // KPI 4: Дисциплина шефов — placeholder
+
+    // Footer last import
+    const lastImport = document.querySelector('aside .text-sm.font-medium');
+    if (lastImport && summary.last_import) {
+      const d = new Date(summary.last_import);
+      lastImport.textContent = d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+  }
+
+  async function hydrateRecommendations() {
+    const data = await tryFetch(`${API_BASE}/top2?limit=200`);
+    if (!data) return;
+
+    const tbody = document.querySelector('#page-recommendations tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">Нет данных. Загрузите матрицы поставщиков.</td></tr>';
+      return;
+    }
+
+    const catBadgeColor = {
+      'Молочка': 'blue', 'Сыры': 'yellow', 'Мясо': 'red',
+      'Рыба и морепродукты': 'red', 'Шоколад': 'amber', 'Овощифрукты': 'green',
+      'Бакалея': 'slate', 'Консервация': 'orange', 'Яйцо': 'orange',
+    };
+
+    for (const item of data.slice(0, 100)) {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-50';
+      const unit = item.unit_type === 'kg_or_l' ? '₽/кг·л' : '₽/упак';
+      const color = catBadgeColor[item.category] || 'slate';
+      const t2 = item.top2;
+      const delta = t2 ? ((t2.price - item.top1.price) / item.top1.price * 100).toFixed(1) : '—';
+      tr.innerHTML = `
+        <td class="px-6 py-3.5 font-medium">${item.product}</td>
+        <td class="px-6 py-3.5"><span class="text-xs bg-${color}-50 text-${color}-700 px-2 py-0.5 rounded">${item.category}</span></td>
+        <td class="px-6 py-3.5">
+          <div class="font-semibold text-slate-900">${item.top1.price.toFixed(2)} ${unit}</div>
+          <div class="text-xs text-slate-500">${item.top1.supplier}</div>
+        </td>
+        <td class="px-6 py-3.5">
+          ${t2 ? `<div class="font-semibold text-slate-700">${t2.price.toFixed(2)} ${unit}</div>
+                  <div class="text-xs text-slate-500">${t2.supplier}</div>`
+                : `<div class="text-xs text-slate-400 italic">только один поставщик</div>`}
+        </td>
+        <td class="px-6 py-3.5"><span class="text-slate-600 text-sm font-medium">${t2 ? '+' + delta + '%' : '—'}</span></td>
+        <td class="px-6 py-3.5"><span class="text-slate-400 text-xs">${item.suppliers_count} пост.</span></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function hydrateDeviations() {
+    const data = await tryFetch(`${API_BASE}/deviations?limit=50`);
+    if (!data) return;
+    const tbody = document.querySelector('#page-analysis tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" class="px-6 py-8 text-center text-slate-500">Нет отклонений.</td></tr>';
+      return;
+    }
+
+    const statusBadge = {
+      'green_top2': '🟢 По Топ-2', 'green_cheaper': '🟢 Дешевле',
+      'yellow': '🟡 Внимание', 'red': '🔴 Дороже',
+      'no_top2': '⚪ Без Топ-2', 'no_quotes': '⚪ Нет цен',
+      'unmapped_product': '❌ Не в карте', 'internal': '⚪ Внутр.',
+    };
+    const statusClass = {
+      'green_top2': 'traffic-green', 'green_cheaper': 'traffic-green',
+      'yellow': 'traffic-yellow', 'red': 'traffic-red',
+    };
+
+    for (const d of data.slice(0, 30)) {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-50' + (d.status === 'red' ? ' row-anomaly' : '');
+      const isAnomalous = ['red', 'yellow'].includes(d.status);
+      tr.innerHTML = `
+        <td class="px-6 py-3 text-slate-600">${d.date.slice(5).replace('-', '.')}</td>
+        <td class="px-6 py-3 font-medium">${d.restaurant || '—'}</td>
+        <td class="px-6 py-3">${d.product.slice(0, 50)}</td>
+        <td class="px-6 py-3 text-slate-600">${d.supplier || '—'}</td>
+        <td class="px-6 py-3 text-right font-medium">${d.unit_price.toFixed(2)} ₽</td>
+        <td class="px-6 py-3 text-right text-slate-500">${d.top2_price ? d.top2_price.toFixed(2) : '—'}</td>
+        <td class="px-6 py-3 text-right font-semibold ${isAnomalous ? 'text-red-600' : 'text-slate-500'}">${d.delta_per_unit ? (d.delta_per_unit > 0 ? '+' : '') + d.delta_per_unit.toFixed(2) : '—'}</td>
+        <td class="px-6 py-3 text-right font-semibold ${isAnomalous ? 'text-red-600' : 'text-slate-500'}">${d.delta_pct ? d.delta_pct.toFixed(1) + '%' : '—'}</td>
+        <td class="px-6 py-3"><span class="px-2 py-0.5 rounded text-xs ${statusClass[d.status] || 'traffic-grey'} font-semibold">${statusBadge[d.status] || d.status}</span></td>
+        <td class="px-6 py-3 text-xs text-slate-400">${d.reason || '—'}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  // Запускаем гидрацию после первоначальной отрисовки
+  window.addEventListener('load', () => {
+    hydrateDashboard();
+    hydrateRecommendations();
+    hydrateDeviations();
+  });
 </script>
 
 </body>
