@@ -4,14 +4,17 @@ FastAPI приложение — backend для прототипа.
 Запуск: uvicorn backend.app:app --reload --port 8000
 """
 from __future__ import annotations
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy import select, func, desc
 from sqlalchemy.orm import Session, selectinload
 
@@ -76,26 +79,54 @@ def list_suppliers(
     db: Session = Depends(get_db),
     only_with_quotes: bool = Query(False),
 ):
-    q = select(Supplier).where(Supplier.is_internal == False).order_by(Supplier.name)
-    sups = db.execute(q).scalars().all()
+    """Список поставщиков + сколько у них позиций + дата последнего обновления + сколько раз они Топ-1."""
+    sups = db.execute(
+        select(Supplier).where(Supplier.is_internal == False).order_by(Supplier.name)
+    ).scalars().all()
+
+    # Топ-1 кеш: для каждого мастер-продукта найти поставщика с минимальной ценой
+    top1_supplier_by_pm: dict[int, int] = {}
+    quotes_by_pm: dict[int, list] = {}
+    for pq in db.execute(select(PriceQuote)).scalars():
+        quotes_by_pm.setdefault(pq.product_master_id, []).append(pq)
+    for pm_id, qs in quotes_by_pm.items():
+        top1 = min(qs, key=lambda x: x.unit_price)
+        top1_supplier_by_pm[pm_id] = top1.supplier_id
+
+    from collections import Counter
+    top1_counter = Counter(top1_supplier_by_pm.values())
+
+    # Категории по поставщику (через мастер-позиции)
+    cats_by_supplier: dict[int, set[str]] = {}
+    for row in db.execute(
+        select(Supplier.id, Category.name)
+        .join(PriceQuote, PriceQuote.supplier_id == Supplier.id)
+        .join(ProductMaster, ProductMaster.id == PriceQuote.product_master_id)
+        .join(Category, Category.id == ProductMaster.category_id)
+        .distinct()
+    ).all():
+        cats_by_supplier.setdefault(row[0], set()).add(row[1])
+
     result = []
     for s in sups:
-        q_count = db.scalar(select(func.count(PriceQuote.id)).where(PriceQuote.supplier_id == s.id))
+        q_count = db.scalar(
+            select(func.count(PriceQuote.id)).where(PriceQuote.supplier_id == s.id)
+        ) or 0
         if only_with_quotes and not q_count:
             continue
-        # сколько раз он Топ-1
-        top1_count = db.execute(text_top1_count(s.id), db.connection())
+        last_updated = db.scalar(
+            select(func.max(PriceQuote.captured_at)).where(PriceQuote.supplier_id == s.id)
+        )
         result.append({
             "id": s.id, "name": s.name,
             "quotes_count": q_count,
+            "top1_count": top1_counter.get(s.id, 0),
+            "categories": sorted(cats_by_supplier.get(s.id, [])),
+            "last_updated": last_updated.isoformat() if last_updated else None,
         })
+    # Сначала те у кого есть цены
+    result.sort(key=lambda x: (-x["quotes_count"], x["name"]))
     return result
-
-
-def text_top1_count(supplier_id: int):
-    """Заглушка чтобы не считать сейчас. Уберём в production-эндпойнте."""
-    from sqlalchemy import text
-    return text("SELECT 0")
 
 
 # ============ PRODUCTS & TOP-2 ============
@@ -297,6 +328,131 @@ def list_unmapped(db: Session = Depends(get_db), limit: int = 50):
             "last_seen": u.last_seen.isoformat(),
         }
         for u in rows
+    ]
+
+
+# ============ RESTAURANTS DISCIPLINE ============
+
+@app.get("/api/restaurants/discipline")
+def restaurants_discipline(db: Session = Depends(get_db)):
+    """Доля по Топ-2 в разрезе ресторанов."""
+    rows = db.execute(
+        select(
+            Restaurant.id, Restaurant.name,
+            func.sum(func.iif(Deviation.status == "green_top2", 1, 0)).label("green"),
+            func.sum(func.iif(Deviation.status.in_(["green_top2", "yellow", "red"]), 1, 0)).label("with_top2"),
+            func.coalesce(func.sum(Deviation.overpayment), 0).label("overpayment"),
+        )
+        .join(PurchaseFact, PurchaseFact.restaurant_id == Restaurant.id)
+        .join(Deviation, Deviation.purchase_fact_id == PurchaseFact.id)
+        .group_by(Restaurant.id, Restaurant.name)
+        .order_by(desc("overpayment"))
+    ).all()
+    return [
+        {
+            "id": r[0], "name": r[1],
+            "discipline_pct": round((r[2] / r[3] * 100), 1) if r[3] else None,
+            "purchases_with_top2": r[3],
+            "overpayment": float(r[4]),
+        }
+        for r in rows
+    ]
+
+
+# ============ REASONS ============
+
+class ReasonIn(BaseModel):
+    reason_text: str
+    reason_category: Optional[str] = None
+
+
+@app.post("/api/deviations/{deviation_id}/reason")
+def set_reason(
+    deviation_id: int,
+    body: ReasonIn,
+    db: Session = Depends(get_db),
+):
+    dev = db.get(Deviation, deviation_id)
+    if not dev:
+        raise HTTPException(404, "Deviation not found")
+    dev.reason_text = body.reason_text
+    dev.reason_category = body.reason_category
+    db.commit()
+    return {"ok": True, "id": deviation_id}
+
+
+# ============ SYNC (Drive → DB) ============
+
+_sync_state = {"status": "idle", "started_at": None, "finished_at": None, "log": []}
+
+
+def _do_sync():
+    """Запускается в фоне — синхронизирует Drive и пересчитывает БД."""
+    _sync_state["status"] = "running"
+    _sync_state["started_at"] = datetime.utcnow().isoformat()
+    _sync_state["finished_at"] = None
+    _sync_state["log"] = []
+
+    root = Path(__file__).parent.parent
+
+    def step(name, cmd):
+        _sync_state["log"].append({"step": name, "started": datetime.utcnow().isoformat()})
+        result = subprocess.run(
+            cmd, cwd=str(root), capture_output=True, text=True
+        )
+        _sync_state["log"][-1]["finished"] = datetime.utcnow().isoformat()
+        _sync_state["log"][-1]["returncode"] = result.returncode
+        if result.returncode != 0:
+            _sync_state["log"][-1]["error"] = result.stderr[-500:]
+
+    try:
+        step("drive_sync", [sys.executable, "-m", "etl.sync_from_drive"])
+        step("importer", [sys.executable, "-m", "backend.importer"])
+        _sync_state["status"] = "ok"
+    except Exception as e:
+        _sync_state["status"] = "error"
+        _sync_state["log"].append({"error": str(e)})
+    finally:
+        _sync_state["finished_at"] = datetime.utcnow().isoformat()
+
+
+@app.post("/api/sync")
+def trigger_sync(background_tasks: BackgroundTasks):
+    if _sync_state["status"] == "running":
+        raise HTTPException(409, "Уже идёт синхронизация")
+    background_tasks.add_task(_do_sync)
+    return {"status": "started"}
+
+
+@app.get("/api/sync/status")
+def sync_status():
+    return _sync_state
+
+
+# ============ EXTENDED DASHBOARD ============
+
+@app.get("/api/dashboard/top_overpayments")
+def top_overpayments(db: Session = Depends(get_db), limit: int = 5):
+    """Топ-N переплат для блока на главной."""
+    rows = db.execute(
+        select(Deviation, PurchaseFact, Supplier, Restaurant)
+        .join(PurchaseFact, Deviation.purchase_fact_id == PurchaseFact.id)
+        .outerjoin(Supplier, PurchaseFact.supplier_id == Supplier.id)
+        .outerjoin(Restaurant, PurchaseFact.restaurant_id == Restaurant.id)
+        .where(Deviation.overpayment > 0)
+        .order_by(desc(Deviation.overpayment))
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "id": dev.id, "product": pf.raw_product,
+            "supplier": sup.name if sup else pf.raw_supplier,
+            "restaurant": rest.name if rest else pf.raw_restaurant,
+            "overpayment": dev.overpayment,
+            "delta_pct": dev.delta_pct,
+            "status": dev.status,
+        }
+        for dev, pf, sup, rest in rows
     ]
 
 

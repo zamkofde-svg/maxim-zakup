@@ -1289,9 +1289,9 @@
   // =========================================================
   const API_BASE = '/api';  // когда FastAPI отдаёт и статику, и API
 
-  async function tryFetch(url) {
+  async function tryFetch(url, opts) {
     try {
-      const r = await fetch(url, { cache: 'no-store' });
+      const r = await fetch(url, { cache: 'no-store', ...(opts || {}) });
       if (!r.ok) return null;
       return await r.json();
     } catch (e) {
@@ -1303,6 +1303,16 @@
     return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n)) + ' ₽';
   }
 
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  // Глобальный кеш категорий (загружается при старте)
+  let CATEGORIES = [];
+  let CURRENT_CATEGORY = null;  // null = все
+
   async function hydrateDashboard() {
     const summary = await tryFetch(`${API_BASE}/dashboard/summary`);
     if (!summary) return;
@@ -1310,24 +1320,155 @@
     // KPI 1: Переплата
     const kpiOver = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(1) .text-3xl');
     if (kpiOver) kpiOver.textContent = fmtRub(summary.total_overpayment);
+    const kpiOverSub = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(1) .text-sm');
+    if (kpiOverSub) kpiOverSub.textContent = summary.total_external_purchases + ' внешних закупок';
 
-    // KPI 2: Дисциплина
+    // KPI 2: Доля закупок по Топ-2
     const kpiDisc = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(2) .text-3xl');
     if (kpiDisc) kpiDisc.textContent = summary.discipline_pct.toFixed(0) + '%';
+    const kpiDiscSub = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(2) .text-sm');
+    if (kpiDiscSub) {
+      const matched = (summary.status_counts.green_top2 || 0) + (summary.status_counts.yellow || 0) + (summary.status_counts.red || 0);
+      kpiDiscSub.textContent = matched + ' закупок с Топ-2';
+    }
 
-    // KPI 3: Аномальный рост (нет данных пока)
-    // KPI 4: Дисциплина шефов — placeholder
+    // KPI 3: Не сопоставлено (вместо «Аномального роста», пока нет истории)
+    const kpiAnom = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(3) .text-3xl');
+    if (kpiAnom) kpiAnom.textContent = (summary.status_counts.unmapped_product || 0);
+    const kpiAnomTitle = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(3) .text-xs');
+    if (kpiAnomTitle) kpiAnomTitle.textContent = 'Не сопоставлено';
+    const kpiAnomSub = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(3) .text-sm');
+    if (kpiAnomSub) kpiAnomSub.textContent = 'нужно дополнить карту';
+
+    // KPI 4: Поставщиков с ценами
+    const kpiChef = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(4) .text-3xl');
+    if (kpiChef) {
+      const sups = await tryFetch(`${API_BASE}/suppliers?only_with_quotes=true`);
+      kpiChef.textContent = sups ? sups.length : '—';
+    }
+    const kpiChefTitle = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(4) .text-xs');
+    if (kpiChefTitle) kpiChefTitle.textContent = 'Поставщиков с ценами';
+    const kpiChefSub = document.querySelector('#page-dashboard .grid.grid-cols-4 > div:nth-child(4) .text-sm');
+    if (kpiChefSub) kpiChefSub.textContent = 'активные матрицы';
 
     // Footer last import
     const lastImport = document.querySelector('aside .text-sm.font-medium');
-    if (lastImport && summary.last_import) {
-      const d = new Date(summary.last_import);
-      lastImport.textContent = d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    if (lastImport && summary.last_import) lastImport.textContent = fmtTime(summary.last_import);
+
+    // Топ переплат (правый блок)
+    await hydrateTopOverpayments();
+
+    // Дисциплина по ресторанам
+    await hydrateRestaurantsDiscipline();
+  }
+
+  async function hydrateTopOverpayments() {
+    const data = await tryFetch(`${API_BASE}/dashboard/top_overpayments?limit=5`);
+    if (!data) return;
+    // Найдём левую колонку второй секции — "Топ переплат"
+    const block = document.querySelectorAll('#page-dashboard .bg-white.rounded-xl.border .divide-y.divide-slate-100')[0];
+    if (!block) return;
+    if (data.length === 0) {
+      block.innerHTML = '<div class="px-6 py-8 text-center text-slate-400 text-sm">Пока нет переплат к показу — нужно больше совпадений Топ-2 с фактом</div>';
+      return;
+    }
+    block.innerHTML = '';
+    for (const d of data) {
+      const statusClass = d.status === 'red' ? 'traffic-red' : 'traffic-yellow';
+      const statusEmoji = d.status === 'red' ? '🔴 Дороже' : '🟡 Внимание';
+      const row = document.createElement('div');
+      row.className = 'px-6 py-3 flex items-center gap-4';
+      row.innerHTML = `
+        <span class="px-2 py-1 rounded text-xs font-semibold ${statusClass}">${statusEmoji}</span>
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-slate-900 text-sm truncate">${d.product}</div>
+          <div class="text-xs text-slate-500 truncate">${d.restaurant || '—'} · "${d.supplier}"</div>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="font-semibold ${d.status === 'red' ? 'text-red-600' : 'text-amber-600'}">+${fmtRub(d.overpayment)}</div>
+          <div class="text-xs text-slate-500">+${d.delta_pct.toFixed(0)}% к Топ-2</div>
+        </div>
+      `;
+      block.appendChild(row);
     }
   }
 
+  async function hydrateRestaurantsDiscipline() {
+    const data = await tryFetch(`${API_BASE}/restaurants/discipline`);
+    if (!data) return;
+    const block = document.querySelectorAll('#page-dashboard .bg-white.rounded-xl.border .divide-y.divide-slate-100')[1];
+    if (!block) return;
+    if (data.length === 0) {
+      block.innerHTML = '<div class="px-6 py-8 text-center text-slate-400 text-sm">Нет ресторанов с покупками</div>';
+      return;
+    }
+    block.innerHTML = '';
+    for (const r of data.slice(0, 5)) {
+      const pct = r.discipline_pct;
+      const color = pct === null ? 'slate' : (pct >= 70 ? 'emerald' : (pct >= 50 ? 'amber' : 'red'));
+      const row = document.createElement('div');
+      row.className = 'px-6 py-3.5 flex items-center gap-4';
+      row.innerHTML = `
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-slate-900 text-sm truncate">${r.name}</div>
+          <div class="text-xs text-slate-500">${r.purchases_with_top2} закупок с Топ-2</div>
+        </div>
+        <div class="w-32 shrink-0">
+          <div class="flex items-center justify-between text-xs mb-1">
+            <span class="text-slate-600">по Топ-2</span>
+            <span class="font-semibold text-${color}-600">${pct !== null ? pct + '%' : '—'}</span>
+          </div>
+          <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div class="h-full bg-${color}-500" style="width: ${pct || 0}%"></div>
+          </div>
+        </div>
+      `;
+      block.appendChild(row);
+    }
+  }
+
+  async function loadCategories() {
+    if (CATEGORIES.length) return CATEGORIES;
+    const data = await tryFetch(`${API_BASE}/categories`);
+    CATEGORIES = data || [];
+    return CATEGORIES;
+  }
+
   async function hydrateRecommendations() {
-    const data = await tryFetch(`${API_BASE}/top2?limit=200`);
+    // Сначала навешиваем кнопки категорий
+    const categories = await loadCategories();
+    const filterBar = document.querySelector('#page-recommendations .flex.gap-2.flex-wrap');
+    if (filterBar && categories.length) {
+      filterBar.innerHTML = '';
+      const allBtn = makeCatBtn('Все', null);
+      filterBar.appendChild(allBtn);
+      for (const c of categories) {
+        filterBar.appendChild(makeCatBtn(c.name, c.name));
+      }
+    }
+
+    await renderRecommendations(CURRENT_CATEGORY);
+  }
+
+  function makeCatBtn(label, value) {
+    const btn = document.createElement('button');
+    const isActive = CURRENT_CATEGORY === value;
+    btn.className = isActive
+      ? 'px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full font-medium text-sm'
+      : 'px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 text-sm';
+    btn.textContent = label;
+    btn.onclick = () => {
+      CURRENT_CATEGORY = value;
+      hydrateRecommendations();
+    };
+    return btn;
+  }
+
+  async function renderRecommendations(category) {
+    const url = category
+      ? `${API_BASE}/top2?category=${encodeURIComponent(category)}&limit=300`
+      : `${API_BASE}/top2?limit=300`;
+    const data = await tryFetch(url);
     if (!data) return;
 
     const tbody = document.querySelector('#page-recommendations tbody');
@@ -1335,23 +1476,29 @@
     tbody.innerHTML = '';
 
     if (data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">Нет данных. Загрузите матрицы поставщиков.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">Нет цен в этой категории.</td></tr>';
       return;
     }
+
+    // Подзаголовок: сколько с конкуренцией / всего
+    const withTop2 = data.filter(x => x.top2 !== null).length;
+    const sub = document.querySelector('#page-recommendations p.text-xs.text-slate-500');
+    if (sub) sub.textContent = `${data.length} позиций · из них ${withTop2} с конкуренцией (≥2 поставщиков)`;
 
     const catBadgeColor = {
       'Молочка': 'blue', 'Сыры': 'yellow', 'Мясо': 'red',
       'Рыба и морепродукты': 'red', 'Шоколад': 'amber', 'Овощифрукты': 'green',
       'Бакалея': 'slate', 'Консервация': 'orange', 'Яйцо': 'orange',
+      'Мукасмеси': 'amber', 'макароны': 'slate', 'Ягода см': 'pink',
     };
 
-    for (const item of data.slice(0, 100)) {
+    for (const item of data) {
       const tr = document.createElement('tr');
-      tr.className = 'hover:bg-slate-50';
+      tr.className = item.top2 ? 'hover:bg-slate-50' : 'hover:bg-slate-50 opacity-60';
       const unit = item.unit_type === 'kg_or_l' ? '₽/кг·л' : '₽/упак';
       const color = catBadgeColor[item.category] || 'slate';
       const t2 = item.top2;
-      const delta = t2 ? ((t2.price - item.top1.price) / item.top1.price * 100).toFixed(1) : '—';
+      const delta = t2 ? ((t2.price - item.top1.price) / item.top1.price * 100).toFixed(1) : null;
       tr.innerHTML = `
         <td class="px-6 py-3.5 font-medium">${item.product}</td>
         <td class="px-6 py-3.5"><span class="text-xs bg-${color}-50 text-${color}-700 px-2 py-0.5 rounded">${item.category}</span></td>
@@ -1362,9 +1509,9 @@
         <td class="px-6 py-3.5">
           ${t2 ? `<div class="font-semibold text-slate-700">${t2.price.toFixed(2)} ${unit}</div>
                   <div class="text-xs text-slate-500">${t2.supplier}</div>`
-                : `<div class="text-xs text-slate-400 italic">только один поставщик</div>`}
+                : `<div class="text-xs text-slate-400 italic">только 1 поставщик</div>`}
         </td>
-        <td class="px-6 py-3.5"><span class="text-slate-600 text-sm font-medium">${t2 ? '+' + delta + '%' : '—'}</span></td>
+        <td class="px-6 py-3.5"><span class="${t2 ? 'text-emerald-600' : 'text-slate-400'} text-sm font-medium">${delta !== null ? '+' + delta + '%' : '—'}</span></td>
         <td class="px-6 py-3.5"><span class="text-slate-400 text-xs">${item.suppliers_count} пост.</span></td>
       `;
       tbody.appendChild(tr);
@@ -1372,6 +1519,19 @@
   }
 
   async function hydrateDeviations() {
+    // KPI наверху страницы «Анализ»: 4 цифры
+    const summary = await tryFetch(`${API_BASE}/dashboard/summary`);
+    if (summary) {
+      const sc = summary.status_counts || {};
+      const kpiCards = document.querySelectorAll('#page-analysis > .grid.grid-cols-4 > div .text-2xl');
+      if (kpiCards.length >= 4) {
+        kpiCards[0].textContent = sc.green_top2 || 0;
+        kpiCards[1].textContent = sc.yellow || 0;
+        kpiCards[2].textContent = sc.red || 0;
+        kpiCards[3].textContent = (sc.no_top2 || 0) + (sc.no_quotes || 0) + (sc.unmapped_product || 0);
+      }
+    }
+
     const data = await tryFetch(`${API_BASE}/deviations?limit=50`);
     if (!data) return;
     const tbody = document.querySelector('#page-analysis tbody');
@@ -1398,6 +1558,9 @@
       const tr = document.createElement('tr');
       tr.className = 'hover:bg-slate-50' + (d.status === 'red' ? ' row-anomaly' : '');
       const isAnomalous = ['red', 'yellow'].includes(d.status);
+      const reasonCell = d.reason
+        ? `<span class="text-xs text-slate-700">${d.reason}</span>`
+        : `<button onclick="openReasonModal(${d.id})" class="text-xs text-indigo-600 hover:underline">+ указать</button>`;
       tr.innerHTML = `
         <td class="px-6 py-3 text-slate-600">${d.date.slice(5).replace('-', '.')}</td>
         <td class="px-6 py-3 font-medium">${d.restaurant || '—'}</td>
@@ -1408,17 +1571,229 @@
         <td class="px-6 py-3 text-right font-semibold ${isAnomalous ? 'text-red-600' : 'text-slate-500'}">${d.delta_per_unit ? (d.delta_per_unit > 0 ? '+' : '') + d.delta_per_unit.toFixed(2) : '—'}</td>
         <td class="px-6 py-3 text-right font-semibold ${isAnomalous ? 'text-red-600' : 'text-slate-500'}">${d.delta_pct ? d.delta_pct.toFixed(1) + '%' : '—'}</td>
         <td class="px-6 py-3"><span class="px-2 py-0.5 rounded text-xs ${statusClass[d.status] || 'traffic-grey'} font-semibold">${statusBadge[d.status] || d.status}</span></td>
-        <td class="px-6 py-3 text-xs text-slate-400">${d.reason || '—'}</td>
+        <td class="px-6 py-3">${reasonCell}</td>
       `;
       tbody.appendChild(tr);
     }
   }
 
+  // ============ Поставщики ============
+  async function hydrateSuppliers() {
+    const data = await tryFetch(`${API_BASE}/suppliers?only_with_quotes=true`);
+    if (!data) return;
+    const tbody = document.querySelector('#page-suppliers tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    // Шапка-баннер: количество
+    const header = document.querySelector('#page-suppliers .bg-white.rounded-xl.border > .px-6.py-4 h3');
+    if (header) header.textContent = `Поставщики · ${data.length} с заполненными ценами`;
+
+    if (data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">Ни одного поставщика с заполненными ценами.</td></tr>';
+      return;
+    }
+
+    for (const s of data) {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-50';
+      const updated = s.last_updated ? fmtTime(s.last_updated) : '—';
+      tr.innerHTML = `
+        <td class="px-6 py-3 font-medium">${s.name}</td>
+        <td class="px-6 py-3 text-slate-600 text-xs">${s.categories.join(', ') || '—'}</td>
+        <td class="px-6 py-3 text-right">${s.quotes_count}</td>
+        <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">${s.top1_count}</span></td>
+        <td class="px-6 py-3 text-slate-500 text-xs">${updated}</td>
+        <td class="px-6 py-3"><span class="text-slate-400 text-sm">—</span></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  // ============ Карта позиций (Mapping) ============
+  async function hydrateMapping() {
+    const unmapped = await tryFetch(`${API_BASE}/unmapped?limit=30`);
+    if (!unmapped) return;
+    // Баннер сверху страницы
+    const alertNum = document.querySelector('#page-mapping .bg-amber-50 .font-semibold.text-amber-900');
+    if (alertNum) alertNum.textContent = `${unmapped.length} типов позиций требуют сопоставления`;
+    const alertDesc = document.querySelector('#page-mapping .bg-amber-50 .text-sm.text-amber-800');
+    if (alertDesc) alertDesc.textContent = 'Эти позиции встречаются в выгрузке iiko/StoreHouse, но их нет в карте сопоставлений. Откройте карту в Google Sheets и добавьте.';
+
+    const tbody = document.querySelector('#page-mapping tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    // Меняем заголовок таблицы
+    const title = document.querySelector('#page-mapping h3');
+    if (title) title.textContent = 'Нераспознанные позиции (топ-30 по частоте)';
+    const subt = document.querySelector('#page-mapping .text-xs.text-slate-500.mt-0.\\.5');
+
+    // Меняем шапку таблицы
+    const thead = document.querySelector('#page-mapping thead tr');
+    if (thead) {
+      thead.innerHTML = `
+        <th class="px-6 py-3 text-left">Название из выгрузки</th>
+        <th class="px-6 py-3 text-left">Источник</th>
+        <th class="px-6 py-3 text-right">Встречалась раз</th>
+        <th class="px-6 py-3 text-left">Последний раз</th>
+      `;
+    }
+
+    if (unmapped.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">Все позиции сопоставлены 🎉</td></tr>';
+      return;
+    }
+
+    for (const u of unmapped) {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-50';
+      tr.innerHTML = `
+        <td class="px-6 py-3">${u.raw_name}</td>
+        <td class="px-6 py-3 text-slate-600 text-xs">${u.source}</td>
+        <td class="px-6 py-3 text-right font-semibold">${u.occurrence_count}</td>
+        <td class="px-6 py-3 text-xs text-slate-500">${fmtTime(u.last_seen)}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  // ============ Кнопка «Запустить пересчёт» ============
+  async function runRealRecalc() {
+    const overlay = document.getElementById('recalc-overlay');
+    const progress = document.getElementById('recalc-progress');
+    const stepEl = document.getElementById('recalc-step');
+    const timeEl = document.getElementById('recalc-time');
+
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flex');
+    progress.style.width = '5%';
+    stepEl.textContent = 'Запрашиваем синхронизацию...';
+    timeEl.textContent = '';
+
+    const started = Date.now();
+    const startResp = await fetch(`${API_BASE}/sync`, { method: 'POST' });
+    if (!startResp.ok) {
+      stepEl.textContent = 'Ошибка запуска: ' + startResp.status;
+      setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 2000);
+      return;
+    }
+
+    const poll = setInterval(async () => {
+      const st = await tryFetch(`${API_BASE}/sync/status`);
+      if (!st) return;
+      const elapsed = Math.round((Date.now() - started) / 1000);
+      timeEl.textContent = elapsed + ' сек';
+      if (st.log && st.log.length) {
+        const last = st.log[st.log.length - 1];
+        stepEl.textContent = last.step === 'drive_sync' ? 'Скачивание файлов с Google Drive...' : 'Импорт в базу данных...';
+      }
+      const pct = st.log ? Math.min(95, 5 + st.log.length * 45) : 10;
+      progress.style.width = pct + '%';
+
+      if (st.status === 'ok' || st.status === 'error') {
+        clearInterval(poll);
+        progress.style.width = '100%';
+        stepEl.textContent = st.status === 'ok' ? 'Готово ✓ Перезагружаем данные...' : 'Ошибка: ' + (st.log[st.log.length-1]?.error || '?');
+        setTimeout(() => {
+          overlay.classList.add('hidden');
+          overlay.classList.remove('flex');
+          // Перезагружаем активную страницу
+          location.reload();
+        }, 1200);
+      }
+    }, 1500);
+  }
+
+  // Подменяем runRecalc на реальный
+  window.runRecalc = runRealRecalc;
+
+  // ============ Модалка причины ============
+  function openReasonModal(deviationId) {
+    const html = `
+      <div id="reason-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50">
+        <div class="bg-white rounded-2xl p-6 w-96 shadow-2xl">
+          <div class="font-semibold text-slate-900 mb-3">Указать причину отклонения</div>
+          <select id="reason-cat" class="w-full border border-slate-200 rounded-lg px-3 py-2 mb-3 text-sm">
+            <option value="">— выбрать причину —</option>
+            <option value="no_stock">Нет наличия у Топ-1</option>
+            <option value="urgent">Срочный заказ</option>
+            <option value="quality">Качество / предпочтение шефа</option>
+            <option value="logistics">Логистика / минимальный заказ</option>
+            <option value="other">Другое</option>
+          </select>
+          <textarea id="reason-text" class="w-full border border-slate-200 rounded-lg px-3 py-2 mb-3 text-sm h-20" placeholder="Комментарий (опционально)"></textarea>
+          <div class="flex gap-2 justify-end">
+            <button onclick="closeReasonModal()" class="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg text-sm">Отмена</button>
+            <button onclick="saveReason(${deviationId})" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium">Сохранить</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+  }
+
+  function closeReasonModal() {
+    document.getElementById('reason-modal')?.remove();
+  }
+
+  async function saveReason(deviationId) {
+    const cat = document.getElementById('reason-cat').value;
+    const text = document.getElementById('reason-text').value;
+    const final = text || cat || '—';
+    if (!cat && !text) {
+      alert('Заполните причину');
+      return;
+    }
+    const resp = await fetch(`${API_BASE}/deviations/${deviationId}/reason`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason_text: final, reason_category: cat || null }),
+    });
+    if (resp.ok) {
+      closeReasonModal();
+      hydrateDeviations();
+    } else {
+      alert('Ошибка сохранения');
+    }
+  }
+  window.openReasonModal = openReasonModal;
+  window.closeReasonModal = closeReasonModal;
+  window.saveReason = saveReason;
+
+  // ============ Скрытие неготовых страниц ============
+  function hideNotReadyPages() {
+    // Динамика цен — нужны исторические данные, накопятся со временем
+    // Закупки vs Инфляция — то же
+    for (const pageId of ['prices', 'inflation']) {
+      const navItem = document.querySelector(`[data-page="${pageId}"]`);
+      if (navItem) {
+        const badge = document.createElement('span');
+        badge.className = 'ml-auto text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded';
+        badge.textContent = 'скоро';
+        navItem.appendChild(badge);
+        navItem.classList.add('opacity-60');
+      }
+    }
+  }
+
   // Запускаем гидрацию после первоначальной отрисовки
   window.addEventListener('load', () => {
+    hideNotReadyPages();
     hydrateDashboard();
     hydrateRecommendations();
     hydrateDeviations();
+    hydrateSuppliers();
+    hydrateMapping();
+
+    // Обновляем счётчик отклонений в sidebar
+    tryFetch(`${API_BASE}/dashboard/summary`).then(s => {
+      if (!s) return;
+      const sc = s.status_counts || {};
+      const total = (sc.red || 0) + (sc.yellow || 0);
+      const badge = document.querySelector('[data-page="analysis"] span.ml-auto');
+      if (badge) badge.textContent = total;
+    });
   });
 </script>
 
