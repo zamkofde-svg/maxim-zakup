@@ -1,0 +1,26 @@
+# Maxim Zakup — production single-container
+# Запуск на VPS: docker compose up -d --build
+
+services:
+  app:
+    build: .
+    container_name: maxim-zakup
+    restart: unless-stopped
+    ports:
+      - "80:8000"   # публичный 80 → контейнерный 8000
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - GOOGLE_SA_JSON_CONTENT=${GOOGLE_SA_JSON_CONTENT}
+      - DB_PATH=/data/data.db
+      - DRIVE_SYNC_DIR=/data/drive-sync
+    volumes:
+      - app-data:/data   # данные сохраняются между перезапусками
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  app-data:
