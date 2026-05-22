@@ -4,11 +4,13 @@ FastAPI приложение — backend для прототипа.
 Запуск: uvicorn backend.app:app --reload --port 8000
 """
 from __future__ import annotations
-import subprocess
 import sys
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+print("[boot] loading backend.app …", flush=True)
 
 from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware

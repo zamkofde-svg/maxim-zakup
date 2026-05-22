@@ -1,11 +1,9 @@
 # Maxim Zakup — single-container app: ETL + FastAPI + статичный фронт
-# Подходит для Timeweb Cloud Apps, Beget VPS, Render, Yandex Cloud — любого Docker-runtime
 
 FROM python:3.11-slim
 
-# Системные зависимости (минимум)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
+    ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -14,7 +12,7 @@ WORKDIR /app
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# Потом код
+# Код
 COPY backend/ /app/backend/
 COPY etl/ /app/etl/
 COPY prototype/ /app/prototype/
@@ -24,7 +22,13 @@ ENV DB_PATH=/tmp/data.db
 ENV DRIVE_SYNC_DIR=/tmp/drive-sync
 RUN mkdir -p /tmp/drive-sync && chmod 777 /tmp/drive-sync
 
-# Порт жёстко 8000 — Timeweb автодетектит по EXPOSE и пробрасывает healthcheck сюда.
+# Не буфферим Python stdout — чтобы все print() сразу видны в логах
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 8000
 
-CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Самопроверка через docker healthcheck (повышает шанс что Timeweb признает контейнер здоровым)
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
+    CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
+
+CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
