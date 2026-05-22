@@ -1,0 +1,26 @@
+# Что не тащим в Docker-образ
+.git
+.gitignore
+.claude
+.vscode
+.idea
+*.md
+!backend/requirements.txt
+*.swp
+__pycache__
+*.pyc
+.DS_Store
+.venv
+venv
+
+# Локальные данные — не нужны в образе, на проде Drive sync сам подтянет
+sample-data/drive-sync/
+backend/data.db
+backend/data.db-journal
+
+# Никогда не пакуем
+secrets/
+*.key
+service_account*.json
+credentials*.json
+sa.json
