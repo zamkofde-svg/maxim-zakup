@@ -41,25 +41,48 @@ app.add_middleware(
 )
 
 
+_first_sync_triggered = False
+
+
 @app.on_event("startup")
 def on_startup():
-    init_db()
-    # Если БД пустая (после старта в облаке) — автоматически синкаем
-    db = SessionLocal()
+    """МИНИМАЛЬНЫЙ startup: только init_db. Тяжёлые вещи (sync) — lazy."""
     try:
-        n_products = db.scalar(select(func.count(ProductMaster.id))) or 0
-    finally:
-        db.close()
-    if n_products == 0:
+        init_db()
+    except Exception as e:
+        print(f"init_db error (продолжаем): {e}")
+    # Auto-sync — не на startup, а лениво в первом запросе (см. middleware ниже)
+
+
+@app.middleware("http")
+async def lazy_first_sync(request, call_next):
+    """При первом HTTP-запросе — если БД пустая, запускаем sync в фоне.
+    Healthcheck не блокируется: проверка БД быстрая, sync — в фоне."""
+    global _first_sync_triggered
+    if not _first_sync_triggered:
+        _first_sync_triggered = True
         try:
-            print("→ Auto-sync: БД пустая, запускаю синхронизацию из Drive...")
-            import threading
-            threading.Thread(target=_do_sync, daemon=True).start()
+            db = SessionLocal()
+            try:
+                n_products = db.scalar(select(func.count(ProductMaster.id))) or 0
+            finally:
+                db.close()
+            if n_products == 0:
+                import threading
+                print("→ Lazy auto-sync: БД пустая, запускаю в фоне...")
+                threading.Thread(target=_do_sync, daemon=True).start()
         except Exception as e:
-            print(f"Auto-sync ошибка: {e}")
+            print(f"Lazy sync ошибка (некритично): {e}")
+    return await call_next(request)
 
 
 # ============ HEALTH / STATS ============
+
+@app.get("/healthz")
+def healthz():
+    """Light healthcheck для Timeweb — без БД, без зависимостей. Всегда 200."""
+    return {"ok": True}
+
 
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):

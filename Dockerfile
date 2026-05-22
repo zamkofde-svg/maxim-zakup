@@ -22,9 +22,7 @@ COPY prototype/ /app/prototype/
 # SQLite файл и кеш Drive-снапшота будут создаваться рядом
 RUN mkdir -p /app/sample-data/drive-sync
 
-# Порт — Timeweb/Render передают через $PORT, локально дефолт 8000
-ENV PORT=8000
+# Порт жёстко 8000 — Timeweb автодетектит по EXPOSE и пробрасывает healthcheck сюда.
 EXPOSE 8000
 
-# Запуск
-CMD ["sh", "-c", "uvicorn backend.app:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
