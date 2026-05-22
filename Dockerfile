@@ -27,8 +27,7 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Самопроверка через docker healthcheck (повышает шанс что Timeweb признает контейнер здоровым)
-HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
-    CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
+# HEALTHCHECK НЕ ставим — Timeweb проверяет своим механизмом,
+# а наш docker HEALTHCHECK может конфликтовать с ним и убивать контейнер.
 
-CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
+CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
