@@ -227,6 +227,10 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
     for pm in db.execute(select(ProductMaster)).scalars():
         pm_cache[(pm.category_id, pm.name_normalized)] = pm
 
+    # Кеш уже обработанных (supplier_id, product_master_id) в этом проходе —
+    # чтобы не вставить дубль если в матрице две одинаковые позиции
+    seen_pairs: set[tuple[int, int]] = set()
+
     inserted, updated, history, unmatched = 0, 0, 0, 0
     now = datetime.utcnow()
 
@@ -239,6 +243,11 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
         if not pm:
             unmatched += 1
             continue
+
+        # Dedup: если эту пару (sup, pm) уже обрабатывали в этом проходе — пропускаем
+        if (sup.id, pm.id) in seen_pairs:
+            continue
+        seen_pairs.add((sup.id, pm.id))
 
         existing = db.execute(
             select(PriceQuote).filter_by(supplier_id=sup.id, product_master_id=pm.id)
