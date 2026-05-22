@@ -8,11 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Сначала зависимости — они меняются редко (хороший кеш слой)
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# Код
 COPY backend/ /app/backend/
 COPY etl/ /app/etl/
 COPY prototype/ /app/prototype/
@@ -22,12 +20,12 @@ ENV DB_PATH=/tmp/data.db
 ENV DRIVE_SYNC_DIR=/tmp/drive-sync
 RUN mkdir -p /tmp/drive-sync && chmod 777 /tmp/drive-sync
 
-# Не буфферим Python stdout — чтобы все print() сразу видны в логах
 ENV PYTHONUNBUFFERED=1
 
+# Открываем оба распространённых порта — Timeweb может проксировать на любой
 EXPOSE 8000
+EXPOSE 80
 
-# HEALTHCHECK НЕ ставим — Timeweb проверяет своим механизмом,
-# а наш docker HEALTHCHECK может конфликтовать с ним и убивать контейнер.
-
-CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# CMD — слушаем на $PORT если задан (некоторые платформы пробрасывают свой),
+# иначе на 8000. И на 0.0.0.0 (все интерфейсы)
+CMD ["sh", "-c", "echo \"[boot] starting uvicorn on 0.0.0.0:${PORT:-8000}\" && uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000}"]

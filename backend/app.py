@@ -4,13 +4,29 @@ FastAPI приложение — backend для прототипа.
 Запуск: uvicorn backend.app:app --reload --port 8000
 """
 from __future__ import annotations
+import os
 import sys
+import signal
 import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-print("[boot] loading backend.app …", flush=True)
+print(f"[boot] loading backend.app … PORT env={os.environ.get('PORT')} HOST={os.uname().nodename}", flush=True)
+
+
+def _log_signal(signum, frame):
+    print(f"[signal] received signal {signum}", flush=True)
+    # Возвращаем дефолтный обработчик чтобы uvicorn нормально завершился
+    signal.signal(signum, signal.SIG_DFL)
+    signal.raise_signal(signum)
+
+
+for sig_name in ("SIGTERM", "SIGINT", "SIGHUP"):
+    try:
+        signal.signal(getattr(signal, sig_name), _log_signal)
+    except Exception as e:
+        print(f"[boot] couldn't install {sig_name} handler: {e}", flush=True)
 
 from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
