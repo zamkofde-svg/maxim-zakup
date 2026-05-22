@@ -22,9 +22,8 @@ RUN mkdir -p /tmp/drive-sync && chmod 777 /tmp/drive-sync
 
 ENV PYTHONUNBUFFERED=1
 
-# Открываем оба распространённых порта — Timeweb может проксировать на любой
+# Один EXPOSE — Timeweb берёт его как target для проксирования
 EXPOSE 8000
-EXPOSE 80
 
 # CMD — слушаем на $PORT если задан (некоторые платформы пробрасывают свой),
 # иначе на 8000. И на 0.0.0.0 (все интерфейсы)
