@@ -1,9 +1,12 @@
 """SQLite + SQLAlchemy: подключение и фабрика сессий."""
+import os
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-DB_PATH = Path(__file__).parent / "data.db"
+# Путь к БД через env (полезно в облаке где /app read-only). По дефолту — рядом с backend/
+DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).parent / "data.db")))
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 DB_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(

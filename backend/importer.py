@@ -34,7 +34,8 @@ from parse_fact_iiko import parse_iiko
 from parse_fact_storehouse import parse_storehouse
 
 
-DRIVE_DIR = Path(__file__).parent.parent / "sample-data" / "drive-sync"
+import os
+DRIVE_DIR = Path(os.environ.get("DRIVE_SYNC_DIR", str(Path(__file__).parent.parent / "sample-data" / "drive-sync")))
 SAMPLES_DIR = Path(__file__).parent.parent / "sample-data"
 
 # Какие файлы в Drive — что

@@ -19,8 +19,10 @@ COPY backend/ /app/backend/
 COPY etl/ /app/etl/
 COPY prototype/ /app/prototype/
 
-# SQLite файл и кеш Drive-снапшота будут создаваться рядом
-RUN mkdir -p /app/sample-data/drive-sync
+# БД и кеш Drive-снапшота в /tmp (write-safe в любом контейнере)
+ENV DB_PATH=/tmp/data.db
+ENV DRIVE_SYNC_DIR=/tmp/drive-sync
+RUN mkdir -p /tmp/drive-sync && chmod 777 /tmp/drive-sync
 
 # Порт жёстко 8000 — Timeweb автодетектит по EXPOSE и пробрасывает healthcheck сюда.
 EXPOSE 8000

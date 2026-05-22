@@ -18,7 +18,8 @@ from googleapiclient.http import MediaIoBaseDownload
 
 SA_PATH = Path.home() / ".config" / "maxim-zakup" / "sa.json"
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
-OUT_DIR = Path(__file__).parent.parent / "sample-data" / "drive-sync"
+# В облаке — DRIVE_SYNC_DIR через env (/tmp/drive-sync). Локально — sample-data/drive-sync
+OUT_DIR = Path(os.environ.get("DRIVE_SYNC_DIR", str(Path(__file__).parent.parent / "sample-data" / "drive-sync")))
 
 
 def _load_credentials():

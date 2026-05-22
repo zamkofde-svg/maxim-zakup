@@ -41,39 +41,19 @@ app.add_middleware(
 )
 
 
-_first_sync_triggered = False
-
-
 @app.on_event("startup")
 def on_startup():
-    """МИНИМАЛЬНЫЙ startup: только init_db. Тяжёлые вещи (sync) — lazy."""
+    """МИНИМАЛЬНЫЙ startup: только init_db. Всё в try — приложение никогда
+    не должно падать на старте, иначе healthcheck не пройдёт."""
     try:
         init_db()
+        print(f"[startup] init_db OK")
     except Exception as e:
-        print(f"init_db error (продолжаем): {e}")
-    # Auto-sync — не на startup, а лениво в первом запросе (см. middleware ниже)
-
-
-@app.middleware("http")
-async def lazy_first_sync(request, call_next):
-    """При первом HTTP-запросе — если БД пустая, запускаем sync в фоне.
-    Healthcheck не блокируется: проверка БД быстрая, sync — в фоне."""
-    global _first_sync_triggered
-    if not _first_sync_triggered:
-        _first_sync_triggered = True
-        try:
-            db = SessionLocal()
-            try:
-                n_products = db.scalar(select(func.count(ProductMaster.id))) or 0
-            finally:
-                db.close()
-            if n_products == 0:
-                import threading
-                print("→ Lazy auto-sync: БД пустая, запускаю в фоне...")
-                threading.Thread(target=_do_sync, daemon=True).start()
-        except Exception as e:
-            print(f"Lazy sync ошибка (некритично): {e}")
-    return await call_next(request)
+        # Не падаем — приложение поднимется, /healthz будет отвечать,
+        # позже можно дернуть /api/sync вручную
+        import traceback
+        print(f"[startup] init_db FAILED (продолжаем): {e}")
+        traceback.print_exc()
 
 
 # ============ HEALTH / STATS ============
