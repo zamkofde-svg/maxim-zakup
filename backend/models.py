@@ -144,6 +144,18 @@ class PriceHistory(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 
+class PriceChange(Base):
+    """Аудит реальных изменений цен (НЕ snapshot'ы). Для отчёта «что поменялось»."""
+    __tablename__ = "price_changes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), index=True)
+    product_master_id: Mapped[int] = mapped_column(ForeignKey("products_master.id"), index=True)
+    old_price: Mapped[float] = mapped_column(Float)
+    new_price: Mapped[float] = mapped_column(Float)
+    delta_pct: Mapped[float] = mapped_column(Float)  # (new - old) / old * 100
+    changed_at: Mapped[datetime] = mapped_column(DateTime, index=True, default=datetime.utcnow)
+
+
 # ============ ФАКТ ЗАКУПОК ============
 
 class PurchaseFact(Base):

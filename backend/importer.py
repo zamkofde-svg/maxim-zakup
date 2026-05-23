@@ -23,7 +23,7 @@ from backend.models import (
     Category, AccountingSystem, Restaurant,
     Supplier, SupplierAlias,
     ProductMaster, AccountingAlias,
-    PriceQuote, PriceHistory,
+    PriceQuote, PriceHistory, PriceChange,
     PurchaseFact, Deviation,
     ImportRun, UnmappedItem,
 )
@@ -306,6 +306,13 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
                 db.add(PriceHistory(
                     supplier_id=sup.id, product_master_id=pm.id,
                     unit_price=existing.unit_price, captured_at=existing.captured_at,
+                ))
+                # Фиксируем РЕАЛЬНОЕ изменение цены в audit-таблице
+                delta_pct = ((q.unit_price - existing.unit_price) / existing.unit_price * 100) if existing.unit_price else 0
+                db.add(PriceChange(
+                    supplier_id=sup.id, product_master_id=pm.id,
+                    old_price=existing.unit_price, new_price=q.unit_price,
+                    delta_pct=delta_pct, changed_at=now,
                 ))
                 existing.unit_price = q.unit_price
                 existing.pkg_net = q.pkg_net

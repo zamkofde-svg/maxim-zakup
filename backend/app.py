@@ -41,7 +41,7 @@ from backend.models import (
     Category, AccountingSystem, Restaurant,
     Supplier, SupplierAlias,
     ProductMaster, AccountingAlias,
-    PriceQuote, PriceHistory,
+    PriceQuote, PriceHistory, PriceChange,
     PurchaseFact, Deviation,
     ImportRun, UnmappedItem, User,
 )
@@ -713,6 +713,105 @@ def periods(db: Session = Depends(get_db)):
         }
         for r in rows
     ]
+
+
+# ============ PRICE CHANGES (что изменилось) ============
+
+@app.get("/api/price_changes")
+def list_price_changes(
+    db: Session = Depends(get_db),
+    since: Optional[str] = Query(None, description="ISO datetime; default — последние 7 дней"),
+    limit: int = 200,
+):
+    """Реальные изменения цен (не snapshot'ы). Сортировка: свежее сверху."""
+    from datetime import timedelta
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", ""))
+        except Exception:
+            raise HTTPException(400, "Bad since format, expected ISO datetime")
+    else:
+        since_dt = datetime.utcnow() - timedelta(days=7)
+
+    rows = db.execute(
+        select(PriceChange, Supplier, ProductMaster, Category)
+        .join(Supplier, Supplier.id == PriceChange.supplier_id)
+        .join(ProductMaster, ProductMaster.id == PriceChange.product_master_id)
+        .join(Category, Category.id == ProductMaster.category_id)
+        .where(PriceChange.changed_at >= since_dt)
+        .order_by(desc(PriceChange.changed_at))
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "id": pc.id,
+            "supplier": s.name,
+            "product": pm.name,
+            "category": cat.name,
+            "old_price": pc.old_price,
+            "new_price": pc.new_price,
+            "delta_pct": pc.delta_pct,
+            "changed_at": pc.changed_at.isoformat(),
+        }
+        for pc, s, pm, cat in rows
+    ]
+
+
+@app.get("/api/price_changes/summary")
+def price_changes_summary(
+    db: Session = Depends(get_db),
+    since: Optional[str] = Query(None),
+):
+    """Сводка изменений за период: сколько всего, ↑ и ↓, средняя дельта, топ-5 крупнейших."""
+    from datetime import timedelta
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", ""))
+        except Exception:
+            raise HTTPException(400, "Bad since format")
+    else:
+        since_dt = datetime.utcnow() - timedelta(days=7)
+
+    rows = db.execute(
+        select(PriceChange, Supplier, ProductMaster)
+        .join(Supplier, Supplier.id == PriceChange.supplier_id)
+        .join(ProductMaster, ProductMaster.id == PriceChange.product_master_id)
+        .where(PriceChange.changed_at >= since_dt)
+        .order_by(desc(PriceChange.changed_at))
+    ).all()
+
+    total = len(rows)
+    ups = [r for r in rows if r[0].delta_pct > 0]
+    downs = [r for r in rows if r[0].delta_pct < 0]
+    avg_up = (sum(r[0].delta_pct for r in ups) / len(ups)) if ups else 0
+    avg_down = (sum(r[0].delta_pct for r in downs) / len(downs)) if downs else 0
+
+    top_ups = sorted(ups, key=lambda r: -r[0].delta_pct)[:5]
+    top_downs = sorted(downs, key=lambda r: r[0].delta_pct)[:5]
+
+    def serialize(rows_subset):
+        return [
+            {
+                "supplier": s.name, "product": pm.name,
+                "old_price": pc.old_price, "new_price": pc.new_price,
+                "delta_pct": pc.delta_pct,
+            }
+            for pc, s, pm in rows_subset
+        ]
+
+    last_ts = rows[0][0].changed_at.isoformat() if rows else None
+
+    return {
+        "since": since_dt.isoformat(),
+        "total": total,
+        "ups": len(ups),
+        "downs": len(downs),
+        "avg_up_pct": round(avg_up, 2),
+        "avg_down_pct": round(avg_down, 2),
+        "top_ups": serialize(top_ups),
+        "top_downs": serialize(top_downs),
+        "last_change_at": last_ts,
+    }
 
 
 # ============ EXTENDED DASHBOARD ============

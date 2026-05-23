@@ -323,6 +323,18 @@
         </div>
       </div>
 
+      <!-- Изменения цен с прошлой синхронизации -->
+      <div id="recent-changes-card" class="bg-white rounded-xl border border-slate-200 mb-6 hidden">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 class="font-semibold text-slate-900">Изменения цен за последние 7 дней</h3>
+            <p class="text-xs text-slate-500 mt-0.5" id="recent-changes-sub">…</p>
+          </div>
+          <div class="text-xs text-slate-500" id="recent-changes-last">—</div>
+        </div>
+        <div id="recent-changes-body" class="px-6 py-3"></div>
+      </div>
+
       <!-- Top anomalies + restaurants -->
       <div class="grid grid-cols-2 gap-6">
         <div class="bg-white rounded-xl border border-slate-200">
@@ -1528,6 +1540,52 @@
 
     // Дисциплина по ресторанам
     await hydrateRestaurantsDiscipline();
+
+    // Изменения цен за 7 дней
+    await hydrateRecentChanges();
+  }
+
+  async function hydrateRecentChanges() {
+    const sum = await tryFetch(`${API_BASE}/price_changes/summary`);
+    const card = document.getElementById('recent-changes-card');
+    if (!sum || !card) return;
+    if (sum.total === 0) {
+      card.classList.add('hidden');
+      return;
+    }
+    card.classList.remove('hidden');
+    const sub = document.getElementById('recent-changes-sub');
+    if (sub) sub.textContent = `${sum.total} изменений · ↑ ${sum.ups} вверх (ср. +${sum.avg_up_pct}%) · ↓ ${sum.downs} вниз (ср. ${sum.avg_down_pct}%)`;
+    const last = document.getElementById('recent-changes-last');
+    if (last && sum.last_change_at) last.textContent = 'последнее: ' + fmtTime(sum.last_change_at);
+
+    const renderRow = (c, up) => `
+      <div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+        <div class="flex-1 min-w-0 pr-3">
+          <div class="text-sm font-medium text-slate-900 truncate">${c.product}</div>
+          <div class="text-xs text-slate-500 truncate">${c.supplier}</div>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="text-sm font-semibold ${up ? 'text-red-600' : 'text-emerald-600'}">${up ? '+' : ''}${c.delta_pct.toFixed(1)}%</div>
+          <div class="text-xs text-slate-500">${c.old_price.toFixed(2)} → ${c.new_price.toFixed(2)} ₽</div>
+        </div>
+      </div>
+    `;
+    const body = document.getElementById('recent-changes-body');
+    if (body) {
+      body.innerHTML = `
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <div class="text-xs font-semibold text-red-600 mb-2 uppercase tracking-wide">↑ Подорожало</div>
+            ${(sum.top_ups || []).slice(0, 5).map(c => renderRow(c, true)).join('') || '<div class="text-xs text-slate-400 italic py-3">нет</div>'}
+          </div>
+          <div>
+            <div class="text-xs font-semibold text-emerald-600 mb-2 uppercase tracking-wide">↓ Подешевело</div>
+            ${(sum.top_downs || []).slice(0, 5).map(c => renderRow(c, false)).join('') || '<div class="text-xs text-slate-400 italic py-3">нет</div>'}
+          </div>
+        </div>
+      `;
+    }
   }
 
   function markChartAsPreview() {
@@ -1951,19 +2009,106 @@
       if (st.status === 'ok' || st.status === 'error') {
         clearInterval(poll);
         progress.style.width = '100%';
-        stepEl.textContent = st.status === 'ok' ? 'Готово ✓ Перезагружаем данные...' : 'Ошибка: ' + (st.log[st.log.length-1]?.error || '?');
-        setTimeout(() => {
-          overlay.classList.add('hidden');
-          overlay.classList.remove('flex');
-          // Перезагружаем активную страницу
-          location.reload();
-        }, 1200);
+        stepEl.textContent = st.status === 'ok' ? 'Готово ✓ Считаем что изменилось...' : 'Ошибка: ' + (st.log[st.log.length-1]?.error || '?');
+        if (st.status === 'ok') {
+          // Покажем сводку изменений с момента запуска sync
+          const since = st.started_at;
+          setTimeout(async () => {
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+            await showPriceChangesModal(since);
+          }, 800);
+        } else {
+          setTimeout(() => {
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+          }, 2000);
+        }
       }
     }, 1500);
   }
 
   // Подменяем runRecalc на реальный
   window.runRecalc = runRealRecalc;
+
+  // ============ Модалка «Что изменилось после пересчёта» ============
+  async function showPriceChangesModal(sinceIso) {
+    const sum = await tryFetch(`${API_BASE}/price_changes/summary?since=${encodeURIComponent(sinceIso)}`);
+    if (!sum) { location.reload(); return; }
+
+    if (sum.total === 0) {
+      // Никаких изменений — просто короткий toast и перезагрузка
+      const toast = document.createElement('div');
+      toast.className = 'fixed top-6 right-6 bg-white border border-emerald-200 rounded-xl shadow-lg p-4 z-50 flex items-center gap-3';
+      toast.innerHTML = `<i data-lucide="check-circle" class="w-5 h-5 text-emerald-600"></i><div class="text-sm"><b>Цены актуальны</b><br><span class="text-slate-500 text-xs">ни одна цена не изменилась с прошлого пересчёта</span></div>`;
+      document.body.appendChild(toast);
+      lucide.createIcons();
+      setTimeout(() => { toast.remove(); location.reload(); }, 2500);
+      return;
+    }
+
+    const renderRow = (c, up) => `
+      <div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+        <div class="flex-1 min-w-0 pr-3">
+          <div class="text-sm font-medium text-slate-900 truncate">${c.product}</div>
+          <div class="text-xs text-slate-500 truncate">${c.supplier}</div>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="text-sm font-semibold ${up ? 'text-red-600' : 'text-emerald-600'}">
+            ${up ? '+' : ''}${c.delta_pct.toFixed(1)}%
+          </div>
+          <div class="text-xs text-slate-500">${c.old_price.toFixed(2)} → ${c.new_price.toFixed(2)} ₽</div>
+        </div>
+      </div>
+    `;
+
+    const html = `
+      <div id="changes-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-6">
+        <div class="bg-white rounded-2xl shadow-2xl w-[640px] max-w-full max-h-[85vh] flex flex-col">
+          <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <div class="font-semibold text-slate-900">Изменилось <span class="text-indigo-600">${sum.total}</span> цен</div>
+              <div class="text-xs text-slate-500 mt-0.5">
+                ↑ ${sum.ups} вверх (в среднем +${sum.avg_up_pct}%) ·
+                ↓ ${sum.downs} вниз (в среднем ${sum.avg_down_pct}%)
+              </div>
+            </div>
+            <button onclick="closeChangesModal()" class="text-slate-400 hover:text-slate-700 p-2">
+              <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+          </div>
+          <div class="overflow-y-auto p-6 space-y-6">
+            ${sum.top_ups.length ? `
+              <div>
+                <div class="text-sm font-semibold text-red-600 mb-2 flex items-center gap-2">
+                  <i data-lucide="trending-up" class="w-4 h-4"></i>
+                  Топ подорожаний
+                </div>
+                <div>${sum.top_ups.map(c => renderRow(c, true)).join('')}</div>
+              </div>` : ''}
+            ${sum.top_downs.length ? `
+              <div>
+                <div class="text-sm font-semibold text-emerald-600 mb-2 flex items-center gap-2">
+                  <i data-lucide="trending-down" class="w-4 h-4"></i>
+                  Топ снижений
+                </div>
+                <div>${sum.top_downs.map(c => renderRow(c, false)).join('')}</div>
+              </div>` : ''}
+          </div>
+          <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+            <button onclick="closeChangesModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm">Закрыть</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+    lucide.createIcons();
+  }
+  function closeChangesModal() {
+    document.getElementById('changes-modal')?.remove();
+    location.reload();
+  }
+  window.closeChangesModal = closeChangesModal;
 
   // ============ Раскатать мастер → поставщики ============
   async function runMasterSync() {
