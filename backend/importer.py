@@ -15,7 +15,7 @@ from typing import Iterable
 sys.path.insert(0, str(Path(__file__).parent.parent / "etl"))
 
 from openpyxl import load_workbook
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.orm import Session
 
 from backend.db import SessionLocal, init_db
@@ -248,8 +248,19 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
     # чтобы не вставить дубль если в матрице две одинаковые позиции
     seen_pairs: set[tuple[int, int]] = set()
 
-    inserted, updated, history, unmatched = 0, 0, 0, 0
+    inserted, updated, history, unmatched, snapshot_saved = 0, 0, 0, 0, 0
     now = datetime.utcnow()
+
+    # Snapshot policy: пишем срез цен раз в сутки даже если они не менялись,
+    # чтобы потом матчить факт по «цене на дату закупки».
+    # Проверяем — есть ли price_history запись за последние 20 часов для этого поставщика
+    from datetime import timedelta
+    snapshot_threshold = now - timedelta(hours=20)
+    last_snap_ts = db.scalar(
+        select(func.max(PriceHistory.captured_at))
+        .where(PriceHistory.supplier_id == sup.id)
+    )
+    need_snapshot = (last_snap_ts is None) or (last_snap_ts < snapshot_threshold)
 
     for q in quotes:
         cat = cat_cache.get(q.category)
@@ -272,7 +283,7 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
 
         if existing:
             if existing.unit_price != q.unit_price:
-                # архивируем старое
+                # архивируем старое (изменение)
                 db.add(PriceHistory(
                     supplier_id=sup.id, product_master_id=pm.id,
                     unit_price=existing.unit_price, captured_at=existing.captured_at,
@@ -282,6 +293,13 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
                 existing.pkg_gross = q.pkg_gross
                 existing.captured_at = now
                 history += 1
+            elif need_snapshot:
+                # Цена та же, но снапшот за сегодня нужен — для исторической сверки
+                db.add(PriceHistory(
+                    supplier_id=sup.id, product_master_id=pm.id,
+                    unit_price=existing.unit_price, captured_at=now,
+                ))
+                snapshot_saved += 1
             updated += 1
         else:
             db.add(PriceQuote(
@@ -289,9 +307,15 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
                 unit_price=q.unit_price, unit_type=q.unit_type,
                 pkg_net=q.pkg_net, pkg_gross=q.pkg_gross, captured_at=now,
             ))
+            # Сразу пишем эту же цену в history — это «известная цена с такой-то даты»
+            db.add(PriceHistory(
+                supplier_id=sup.id, product_master_id=pm.id,
+                unit_price=q.unit_price, captured_at=now,
+            ))
+            snapshot_saved += 1
             inserted += 1
 
-    return {"inserted": inserted, "updated": updated, "history": history, "unmatched": unmatched}
+    return {"inserted": inserted, "updated": updated, "history_changes": history, "snapshots": snapshot_saved, "unmatched": unmatched}
 
 
 def import_facts(db: Session) -> dict:
@@ -315,20 +339,59 @@ def import_facts(db: Session) -> dict:
     for aa in db.execute(select(AccountingAlias)).scalars():
         acct_alias_cache.setdefault((aa.system_id, aa.name_normalized), aa.product_master_id)
 
-    # Текущие топ-2 по каждому продукту
-    top2_cache: dict[int, tuple] = {}  # pm_id → (top1_sup, top1_price, top2_sup, top2_price)
-    quotes_by_pm: dict[int, list] = {}
-    for pq in db.execute(select(PriceQuote)).scalars():
-        quotes_by_pm.setdefault(pq.product_master_id, []).append(pq)
-    for pm_id, qs in quotes_by_pm.items():
-        sorted_q = sorted(qs, key=lambda x: x.unit_price)
-        t1 = sorted_q[0]
-        t2 = sorted_q[1] if len(sorted_q) > 1 else None
-        top2_cache[pm_id] = (
-            t1.supplier_id, t1.unit_price,
-            (t2.supplier_id if t2 else None),
-            (t2.unit_price if t2 else None),
+    # === Цены ПО ДАТАМ — берём ВСЁ из price_history + текущие из price_quotes
+    # Структура: history_by_pair[(supplier_id, pm_id)] = sorted list of (date, price)
+    history_by_pair: dict[tuple[int, int], list[tuple[datetime, float]]] = {}
+    for ph in db.execute(select(PriceHistory).order_by(PriceHistory.captured_at)).scalars():
+        history_by_pair.setdefault((ph.supplier_id, ph.product_master_id), []).append(
+            (ph.captured_at, ph.unit_price)
         )
+    # Текущие цены тоже добавим — это «цена с такой-то даты до сих пор»
+    for pq in db.execute(select(PriceQuote)).scalars():
+        history_by_pair.setdefault((pq.supplier_id, pq.product_master_id), []).append(
+            (pq.captured_at, pq.unit_price)
+        )
+    # Пере-сортируем каждый список по дате (на всякий случай)
+    for key in history_by_pair:
+        history_by_pair[key].sort(key=lambda x: x[0])
+
+    def price_on_date(supplier_id: int, pm_id: int, target_date: date) -> Optional[float]:
+        """Возвращает цену поставщика на товар на конкретную дату:
+        - последний снапшот с captured_at <= target_date
+        - если все снапшоты позже target_date — берём самый ранний (приближение, ничего лучше нет)
+        - если данных вообще нет — None"""
+        records = history_by_pair.get((supplier_id, pm_id))
+        if not records:
+            return None
+        # ищем последнюю запись с датой <= target_date
+        target_dt = datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59)
+        best = None
+        for ts, price in records:
+            if ts <= target_dt:
+                best = price
+            else:
+                break
+        if best is not None:
+            return best
+        # все снапшоты ПОЗЖЕ target_date — берём самый ранний (приближение)
+        return records[0][1]
+
+    def top2_on_date(pm_id: int, target_date: date) -> tuple:
+        """Возвращает (top1_sup, top1_price, top2_sup, top2_price) на дату.
+        Учитываются только те поставщики у которых была цена на эту дату."""
+        candidates = []
+        for (sup_id, pm), records in history_by_pair.items():
+            if pm != pm_id:
+                continue
+            price = price_on_date(sup_id, pm_id, target_date)
+            if price is not None:
+                candidates.append((sup_id, price))
+        if not candidates:
+            return (None, None, None, None)
+        candidates.sort(key=lambda x: x[1])
+        t1 = candidates[0]
+        t2 = candidates[1] if len(candidates) > 1 else (None, None)
+        return (t1[0], t1[1], t2[0], t2[1])
 
     # Рестораны — собираем из SH-выгрузки на лету
     restaurants_cache: dict[str, Restaurant] = {
@@ -417,8 +480,9 @@ def import_facts(db: Session) -> dict:
                         system_id=(system.id if system else None),
                     ))
             else:
-                t = top2_cache.get(pm_id)
-                if not t:
+                # Топ-2 НА ДАТУ ФАКТА (а не текущий!)
+                t = top2_on_date(pm_id, d)
+                if t[0] is None:
                     dev.status = "no_quotes"
                 elif t[2] is None:
                     dev.status = "no_top2"

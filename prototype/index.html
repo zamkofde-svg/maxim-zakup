@@ -116,10 +116,6 @@
               <option value="">все периоды</option>
             </select>
           </div>
-          <button onclick="runMasterSync()" id="master-sync-btn" class="flex items-center gap-2 border border-indigo-200 text-indigo-700 hover:bg-indigo-50 px-3 py-2 rounded-lg text-sm font-medium">
-            <i data-lucide="git-fork" class="w-4 h-4"></i>
-            Раскатать мастер
-          </button>
           <button onclick="runRecalc()" id="recalc-btn" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
             <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             Запустить пересчёт
@@ -839,15 +835,22 @@
     <div id="page-suppliers" class="page p-8">
       <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-4 flex gap-4">
         <i data-lucide="info" class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
-        <div>
+        <div class="flex-1">
           <div class="font-semibold text-blue-900">Поставщики продолжают заполнять матрицы в Google Sheets</div>
-          <div class="text-sm text-blue-800 mt-1">Им ничего не нужно менять. Система автоматически забирает обновления из Google Drive каждый час.</div>
+          <div class="text-sm text-blue-800 mt-1">Им ничего не нужно менять. Цены автоматически синхронизируются <b>каждый день в 06:00 по Тюмени</b>, плюс кнопка «Запустить пересчёт» в правом верхнем углу для ручного обновления.</div>
         </div>
       </div>
 
       <div class="bg-white rounded-xl border border-slate-200">
-        <div class="px-6 py-4 border-b border-slate-100">
-          <h3 class="font-semibold text-slate-900">Поставщики · 8 активных</h3>
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 class="font-semibold text-slate-900">Поставщики · <span id="suppliers-count">…</span> активных</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Структура матриц должна совпадать с мастер-матрицей</p>
+          </div>
+          <button onclick="runMasterSync()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+            <i data-lucide="git-fork" class="w-4 h-4"></i>
+            Обновить по мастер-матрице
+          </button>
         </div>
         <table class="w-full text-sm">
           <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
@@ -932,78 +935,92 @@
 
     <!-- ============ MAPPING ============ -->
     <div id="page-mapping" class="page p-8">
-      <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-4 flex gap-4">
-        <i data-lucide="alert-circle" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"></i>
+      <!-- Объясняющий баннер -->
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-4 flex gap-4">
+        <i data-lucide="info" class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
         <div class="flex-1">
-          <div class="font-semibold text-amber-900">12 позиций требуют сопоставления</div>
-          <div class="text-sm text-amber-800 mt-1">Новые товары из выгрузки iiko/StoreHouse, которых ещё нет в карте позиций.</div>
+          <div class="font-semibold text-blue-900">Как работает карта сопоставлений</div>
+          <div class="text-sm text-blue-800 mt-1">У одной и той же позиции **разные названия** в матрице поставщиков и в iiko/StoreHouse. Карта сопоставлений связывает их, чтобы система могла сверять закупки с Топ-2. Заказчик ведёт её в отдельном Google Sheet.</div>
+          <a id="mapping-sheet-link" href="https://docs.google.com/spreadsheets/d/1-nUxrYGZB6gev8OhcUN48Sa4s47H-s-5_9dAjHdnSCI/edit" target="_blank" class="inline-flex items-center gap-1.5 mt-3 text-sm text-blue-700 hover:text-blue-900 font-medium">
+            <i data-lucide="external-link" class="w-4 h-4"></i>
+            Открыть «Карта сопоставлений» в Google Sheets
+          </a>
         </div>
-        <button class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium">Сопоставить</button>
       </div>
 
+      <!-- Алерт по нераспознанным -->
+      <div id="unmapped-alert" class="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-4 flex gap-4">
+        <i data-lucide="alert-circle" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"></i>
+        <div class="flex-1">
+          <div class="font-semibold text-amber-900" id="unmapped-count-title">…</div>
+          <div class="text-sm text-amber-800 mt-1">Эти позиции встречаются в выгрузке iiko/StoreHouse, но их нет в карте сопоставлений. Откройте Google Sheets выше и добавьте маппинг.</div>
+        </div>
+      </div>
+
+      <!-- KPI покрытие -->
+      <div class="grid grid-cols-4 gap-4 mb-4">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Мастер-позиций</div>
+          <div class="text-2xl font-bold text-slate-900" id="mapping-kpi-master">…</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Маппингов в карте</div>
+          <div class="text-2xl font-bold text-slate-900" id="mapping-kpi-aliases">…</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Нераспознано</div>
+          <div class="text-2xl font-bold text-amber-600" id="mapping-kpi-unmapped">…</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Систем учёта</div>
+          <div class="text-2xl font-bold text-slate-900">4</div>
+          <div class="text-xs text-slate-500">SH · Chees · TEHNIKUM · Sorrento</div>
+        </div>
+      </div>
+
+      <!-- Нераспознанные позиции -->
+      <div class="bg-white rounded-xl border border-slate-200 mb-4">
+        <div class="px-6 py-4 border-b border-slate-100">
+          <h3 class="font-semibold text-slate-900">⚠️ Нераспознанные позиции (топ-30 по частоте)</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Что встречается в выгрузках, но нет в карте — добавь маппинг в Google Sheets</p>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
+            <tr id="unmapped-thead">
+              <th class="px-6 py-3 text-left">Название из выгрузки</th>
+              <th class="px-6 py-3 text-left">Источник</th>
+              <th class="px-6 py-3 text-right">Встречалась раз</th>
+              <th class="px-6 py-3 text-left">Последний раз</th>
+            </tr>
+          </thead>
+          <tbody id="unmapped-tbody">
+            <tr><td colspan="4" class="px-6 py-8 text-center text-slate-400">Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Существующая карта сопоставлений -->
       <div class="bg-white rounded-xl border border-slate-200">
         <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <h3 class="font-semibold text-slate-900">Карта позиций · Шоколад</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Связывает названия у поставщиков с номенклатурой StoreHouse и iiko</p>
+            <h3 class="font-semibold text-slate-900">Карта сопоставлений</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Что сейчас в карте: мастер-позиция → имена в системах учёта</p>
           </div>
-          <button class="flex items-center gap-1.5 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium">
-            <i data-lucide="plus" class="w-4 h-4"></i> Добавить
-          </button>
         </div>
 
-        <div class="px-6 py-3 border-b border-slate-100 flex gap-2 flex-wrap text-sm">
-          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Молочка</button>
-          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Сыры</button>
-          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Мясо</button>
-          <button class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full font-medium">Шоколад</button>
-          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Бакалея</button>
-          <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Консервация</button>
-        </div>
+        <div class="px-6 py-3 border-b border-slate-100 flex gap-2 flex-wrap text-sm" id="mapping-cat-filter"></div>
 
         <table class="w-full text-sm">
           <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
             <tr>
-              <th class="px-6 py-3 text-left">Название у поставщика</th>
-              <th class="px-6 py-3 text-left">StoreHouse</th>
-              <th class="px-6 py-3 text-left">SH сыр</th>
-              <th class="px-6 py-3 text-left">«TEHNIKUM»</th>
+              <th class="px-6 py-3 text-left">Мастер-позиция</th>
+              <th class="px-6 py-3 text-left">SH</th>
+              <th class="px-6 py-3 text-left">Chees</th>
+              <th class="px-6 py-3 text-left">TEHNIKUM</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3">Sikao Белая шоколадная масса Легкоплавкие диски</td>
-              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Белый 25%</td>
-              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Белый 25%</td>
-              <td class="px-6 py-3 text-slate-700">*ШОКОЛАД БЕЛЫЙ 25%</td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3">Шоколадная масса белая 27% диски (CHW-U1934-91A), 20кг</td>
-              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Белый 25%</td>
-              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Белый 25%</td>
-              <td class="px-6 py-3 text-slate-400 italic">—</td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3">Молочная шоколадная масса CHD-T2332-411 30%, ООО Барри Каллебаут</td>
-              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Молочный 33%</td>
-              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Молочный 33%</td>
-              <td class="px-6 py-3 text-slate-400 italic">—</td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3">Тёмная шоколадная масса CHD-G11RU-411 54%, ООО Барри Каллебаут</td>
-              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Тёмный 54%</td>
-              <td class="px-6 py-3 text-slate-700">*Шоколад ЧП Тёмный 54%</td>
-              <td class="px-6 py-3 text-slate-400 italic">—</td>
-            </tr>
-            <tr class="hover:bg-slate-50 bg-amber-50/30">
-              <td class="px-6 py-3 flex items-center gap-2">
-                <i data-lucide="alert-circle" class="w-4 h-4 text-amber-500"></i>
-                Какао-масса 100% Callebaut
-              </td>
-              <td class="px-6 py-3 text-slate-400 italic">не сопоставлено</td>
-              <td class="px-6 py-3 text-slate-400 italic">не сопоставлено</td>
-              <td class="px-6 py-3 text-slate-400 italic">не сопоставлено</td>
-            </tr>
+          <tbody id="mapping-tbody" class="divide-y divide-slate-100">
+            <tr><td colspan="4" class="px-6 py-8 text-center text-slate-400">Загрузка…</td></tr>
           </tbody>
         </table>
       </div>
@@ -1633,9 +1650,9 @@
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    // Шапка-баннер: количество
-    const header = document.querySelector('#page-suppliers .bg-white.rounded-xl.border > .px-6.py-4 h3');
-    if (header) header.textContent = `Поставщики · ${data.length} с заполненными ценами`;
+    // Кол-во в шапке
+    const cnt = document.getElementById('suppliers-count');
+    if (cnt) cnt.textContent = data.length;
 
     if (data.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">Ни одного поставщика с заполненными ценами.</td></tr>';
@@ -1659,48 +1676,93 @@
   }
 
   // ============ Карта позиций (Mapping) ============
-  async function hydrateMapping() {
-    const unmapped = await tryFetch(`${API_BASE}/unmapped?limit=30`);
-    if (!unmapped) return;
-    // Баннер сверху страницы
-    const alertNum = document.querySelector('#page-mapping .bg-amber-50 .font-semibold.text-amber-900');
-    if (alertNum) alertNum.textContent = `${unmapped.length} типов позиций требуют сопоставления`;
-    const alertDesc = document.querySelector('#page-mapping .bg-amber-50 .text-sm.text-amber-800');
-    if (alertDesc) alertDesc.textContent = 'Эти позиции встречаются в выгрузке iiko/StoreHouse, но их нет в карте сопоставлений. Откройте карту в Google Sheets и добавьте.';
+  let MAPPING_CURRENT_CAT = null;
 
-    const tbody = document.querySelector('#page-mapping tbody');
+  async function hydrateMapping() {
+    // 1. KPI и алерт
+    const summary = await tryFetch(`${API_BASE}/mapping/summary`);
+    if (summary) {
+      document.getElementById('mapping-kpi-master').textContent = summary.total_master_products;
+      document.getElementById('mapping-kpi-aliases').textContent = summary.total_aliases;
+      document.getElementById('mapping-kpi-unmapped').textContent = summary.total_unmapped;
+      const alertTitle = document.getElementById('unmapped-count-title');
+      if (alertTitle) alertTitle.textContent = `${summary.total_unmapped} позиций нераспознано`;
+      // Скрываем алерт если 0
+      const alertBox = document.getElementById('unmapped-alert');
+      if (alertBox && summary.total_unmapped === 0) alertBox.style.display = 'none';
+    }
+
+    // 2. Таблица нераспознанных
+    const unmapped = await tryFetch(`${API_BASE}/unmapped?limit=30`);
+    const utbody = document.getElementById('unmapped-tbody');
+    if (utbody) {
+      utbody.innerHTML = '';
+      if (!unmapped || unmapped.length === 0) {
+        utbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-emerald-600">Все позиции сопоставлены 🎉</td></tr>';
+      } else {
+        for (const u of unmapped) {
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-slate-50';
+          tr.innerHTML = `
+            <td class="px-6 py-3">${u.raw_name}</td>
+            <td class="px-6 py-3 text-slate-600 text-xs">${u.source}</td>
+            <td class="px-6 py-3 text-right font-semibold">${u.occurrence_count}</td>
+            <td class="px-6 py-3 text-xs text-slate-500">${fmtTime(u.last_seen)}</td>
+          `;
+          utbody.appendChild(tr);
+        }
+      }
+    }
+
+    // 3. Фильтр-кнопки категорий
+    const cats = await loadCategories();
+    const filter = document.getElementById('mapping-cat-filter');
+    if (filter && cats.length) {
+      filter.innerHTML = '';
+      const allBtn = makeMappingBtn('Все', null);
+      filter.appendChild(allBtn);
+      for (const c of cats) filter.appendChild(makeMappingBtn(c.name, c.name));
+    }
+
+    await renderMappingTable(MAPPING_CURRENT_CAT);
+  }
+
+  function makeMappingBtn(label, value) {
+    const btn = document.createElement('button');
+    const isActive = MAPPING_CURRENT_CAT === value;
+    btn.className = isActive
+      ? 'px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full font-medium text-sm'
+      : 'px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 text-sm';
+    btn.textContent = label;
+    btn.onclick = () => { MAPPING_CURRENT_CAT = value; hydrateMapping(); };
+    return btn;
+  }
+
+  async function renderMappingTable(category) {
+    const url = category
+      ? `${API_BASE}/mapping/items?category=${encodeURIComponent(category)}&limit=300`
+      : `${API_BASE}/mapping/items?limit=300`;
+    const data = await tryFetch(url);
+    const tbody = document.getElementById('mapping-tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
-
-    // Меняем заголовок таблицы
-    const title = document.querySelector('#page-mapping h3');
-    if (title) title.textContent = 'Нераспознанные позиции (топ-30 по частоте)';
-    const subt = document.querySelector('#page-mapping .text-xs.text-slate-500.mt-0.\\.5');
-
-    // Меняем шапку таблицы
-    const thead = document.querySelector('#page-mapping thead tr');
-    if (thead) {
-      thead.innerHTML = `
-        <th class="px-6 py-3 text-left">Название из выгрузки</th>
-        <th class="px-6 py-3 text-left">Источник</th>
-        <th class="px-6 py-3 text-right">Встречалась раз</th>
-        <th class="px-6 py-3 text-left">Последний раз</th>
-      `;
-    }
-
-    if (unmapped.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">Все позиции сопоставлены 🎉</td></tr>';
+    if (!data || data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-slate-400">Нет позиций.</td></tr>';
       return;
     }
-
-    for (const u of unmapped) {
+    for (const item of data) {
       const tr = document.createElement('tr');
-      tr.className = 'hover:bg-slate-50';
+      const isUnmapped = !item.has_any;
+      tr.className = isUnmapped ? 'hover:bg-slate-50 bg-amber-50/20' : 'hover:bg-slate-50';
+      const cell = (v) => v ? `<span class="text-slate-700">${v}</span>` : '<span class="text-slate-400 italic">—</span>';
       tr.innerHTML = `
-        <td class="px-6 py-3">${u.raw_name}</td>
-        <td class="px-6 py-3 text-slate-600 text-xs">${u.source}</td>
-        <td class="px-6 py-3 text-right font-semibold">${u.occurrence_count}</td>
-        <td class="px-6 py-3 text-xs text-slate-500">${fmtTime(u.last_seen)}</td>
+        <td class="px-6 py-3">
+          <div class="font-medium text-slate-900">${item.product.slice(0, 80)}</div>
+          <div class="text-xs text-slate-500">${item.category}</div>
+        </td>
+        <td class="px-6 py-3">${cell(item.SH)}</td>
+        <td class="px-6 py-3">${cell(item.Chees)}</td>
+        <td class="px-6 py-3">${cell(item.TEHNIKUM)}</td>
       `;
       tbody.appendChild(tr);
     }

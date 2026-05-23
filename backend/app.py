@@ -349,6 +349,68 @@ def dashboard_summary(db: Session = Depends(get_db)):
     }
 
 
+# ============ MAPPING (KARTA POZICIJ) ============
+
+@app.get("/api/mapping/summary")
+def mapping_summary(db: Session = Depends(get_db)):
+    """Сводка покрытия: сколько маппингов на категорию × систему."""
+    from collections import defaultdict
+    rows = db.execute(
+        select(
+            Category.name, AccountingSystem.name, func.count(AccountingAlias.id)
+        )
+        .join(ProductMaster, ProductMaster.category_id == Category.id)
+        .join(AccountingAlias, AccountingAlias.product_master_id == ProductMaster.id)
+        .join(AccountingSystem, AccountingSystem.id == AccountingAlias.system_id)
+        .group_by(Category.name, AccountingSystem.name)
+    ).all()
+    by_cat: dict = defaultdict(dict)
+    for cat, sys_name, n in rows:
+        by_cat[cat][sys_name] = n
+    return {
+        "categories": [{"name": c, "by_system": d} for c, d in sorted(by_cat.items())],
+        "total_aliases": db.scalar(select(func.count(AccountingAlias.id))),
+        "total_master_products": db.scalar(select(func.count(ProductMaster.id))),
+        "total_unmapped": db.scalar(select(func.count(UnmappedItem.id))),
+    }
+
+
+@app.get("/api/mapping/items")
+def mapping_items(
+    db: Session = Depends(get_db),
+    category: Optional[str] = None,
+    limit: int = 200,
+):
+    """Реальный список маппингов: мастер-позиция → имена в системах учёта."""
+    q = (
+        select(ProductMaster, Category)
+        .join(Category, ProductMaster.category_id == Category.id)
+    )
+    if category:
+        q = q.where(Category.name == category)
+    q = q.order_by(ProductMaster.name).limit(limit)
+    rows = db.execute(q).all()
+    result = []
+    for pm, cat in rows:
+        aliases = db.execute(
+            select(AccountingAlias, AccountingSystem)
+            .join(AccountingSystem, AccountingSystem.id == AccountingAlias.system_id)
+            .where(AccountingAlias.product_master_id == pm.id)
+        ).all()
+        by_sys = {sys.name: alias.name for alias, sys in aliases}
+        result.append({
+            "id": pm.id,
+            "product": pm.name,
+            "category": cat.name,
+            "SH": by_sys.get("SH"),
+            "Chees": by_sys.get("Chees"),
+            "TEHNIKUM": by_sys.get("TEHNIKUM"),
+            "Sorrento": by_sys.get("Sorrento"),
+            "has_any": bool(by_sys),
+        })
+    return result
+
+
 # ============ UNMAPPED ITEMS ============
 
 @app.get("/api/unmapped")
