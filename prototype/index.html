@@ -477,9 +477,17 @@
     <!-- ============ RECOMMENDATIONS ============ -->
     <div id="page-recommendations" class="page p-8">
       <div class="bg-white rounded-xl border border-slate-200 mb-4">
-        <div class="px-6 py-4 border-b border-slate-100">
-          <h3 class="font-semibold text-slate-900">Топ-2 рекомендации шефам</h3>
-          <p class="text-xs text-slate-500 mt-0.5">Обновляются автоматически из матриц поставщиков</p>
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
+          <div>
+            <h3 class="font-semibold text-slate-900">Топ-2 рекомендации шефам</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Обновляются автоматически из матриц поставщиков</p>
+          </div>
+          <div class="relative w-72">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"></i>
+            <input id="rec-search" type="search" placeholder="Поиск по наименованию…"
+                   oninput="onRecSearchInput()"
+                   class="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-indigo-400" />
+          </div>
         </div>
 
         <div class="px-6 py-3 border-b border-slate-100 flex gap-2 flex-wrap text-sm">
@@ -1645,26 +1653,49 @@
     return btn;
   }
 
+  let _recCache = [];  // последние загруженные данные — для фильтрации без перезапроса
+
   async function renderRecommendations(category) {
     const url = category
       ? `${API_BASE}/top2?category=${encodeURIComponent(category)}&limit=300`
       : `${API_BASE}/top2?limit=300`;
     const data = await tryFetch(url);
     if (!data) return;
+    _recCache = data;
+    // Сбрасываем поиск при смене категории
+    const searchEl = document.getElementById('rec-search');
+    if (searchEl) searchEl.value = '';
+    renderRecRows(data);
+  }
 
+  function onRecSearchInput() {
+    const q = (document.getElementById('rec-search')?.value || '').toLowerCase().trim();
+    if (!q) { renderRecRows(_recCache); return; }
+    const filtered = _recCache.filter(item => item.product.toLowerCase().includes(q));
+    renderRecRows(filtered, q);
+  }
+  window.onRecSearchInput = onRecSearchInput;
+
+  function renderRecRows(data, searchQuery) {
     const tbody = document.querySelector('#page-recommendations tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    if (data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">Нет цен в этой категории.</td></tr>';
+    if (!data || data.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">${searchQuery ? 'Ничего не найдено по запросу «' + searchQuery + '»' : 'Нет цен в этой категории.'}</td></tr>`;
+      // Обновим подзаголовок если поиск
+      const sub = document.querySelector('#page-recommendations p.text-xs.text-slate-500');
+      if (sub && searchQuery) sub.textContent = `Найдено 0 из ${_recCache.length} позиций по «${searchQuery}»`;
       return;
     }
 
-    // Подзаголовок: сколько с конкуренцией / всего
+    // Подзаголовок
     const withTop2 = data.filter(x => x.top2 !== null).length;
     const sub = document.querySelector('#page-recommendations p.text-xs.text-slate-500');
-    if (sub) sub.textContent = `${data.length} позиций · из них ${withTop2} с конкуренцией (≥2 поставщиков)`;
+    if (sub) {
+      if (searchQuery) sub.textContent = `Найдено ${data.length} из ${_recCache.length} позиций по «${searchQuery}»`;
+      else sub.textContent = `${data.length} позиций · из них ${withTop2} с конкуренцией (≥2 поставщиков)`;
+    }
 
     const catBadgeColor = {
       'Молочка': 'blue', 'Сыры': 'yellow', 'Мясо': 'red',
