@@ -116,6 +116,10 @@
               <option value="">все периоды</option>
             </select>
           </div>
+          <button onclick="runMasterSync()" id="master-sync-btn" class="flex items-center gap-2 border border-indigo-200 text-indigo-700 hover:bg-indigo-50 px-3 py-2 rounded-lg text-sm font-medium">
+            <i data-lucide="git-fork" class="w-4 h-4"></i>
+            Раскатать мастер
+          </button>
           <button onclick="runRecalc()" id="recalc-btn" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
             <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             Запустить пересчёт
@@ -1751,6 +1755,53 @@
 
   // Подменяем runRecalc на реальный
   window.runRecalc = runRealRecalc;
+
+  // ============ Раскатать мастер → поставщики ============
+  async function runMasterSync() {
+    const overlay = document.getElementById('recalc-overlay');
+    const progress = document.getElementById('recalc-progress');
+    const stepEl = document.getElementById('recalc-step');
+    const timeEl = document.getElementById('recalc-time');
+
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flex');
+    progress.style.width = '5%';
+    stepEl.textContent = 'Читаем мастер-матрицу из Google Drive...';
+    timeEl.textContent = '';
+
+    const started = Date.now();
+    const resp = await fetch(`${API_BASE}/sync-master`, { method: 'POST' });
+    if (!resp.ok) {
+      stepEl.textContent = 'Ошибка запуска: ' + resp.status;
+      setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 2500);
+      return;
+    }
+
+    const poll = setInterval(async () => {
+      const st = await tryFetch(`${API_BASE}/sync-master/status`);
+      if (!st) return;
+      const elapsed = Math.round((Date.now() - started) / 1000);
+      timeEl.textContent = elapsed + ' сек';
+      progress.style.width = Math.min(85, 5 + elapsed * 5) + '%';
+
+      if (st.status === 'ok') {
+        clearInterval(poll);
+        progress.style.width = '100%';
+        const r = st.result || {};
+        stepEl.textContent = `Готово ✓ Вкладок: +${r.total_sheets_added || 0}, строк: +${r.total_rows_added || 0}, поставщиков: ${(r.supplier_changes || []).length}`;
+        setTimeout(() => {
+          overlay.classList.add('hidden');
+          overlay.classList.remove('flex');
+          alert(`Мастер раскатан по поставщикам:\n• Новых вкладок: ${r.total_sheets_added || 0}\n• Новых строк: ${r.total_rows_added || 0}\n• Поставщиков затронуто: ${(r.supplier_changes || []).length}\n\nЦены поставщиков не изменены. Откройте Google Drive, чтобы проверить.`);
+        }, 1500);
+      } else if (st.status === 'error') {
+        clearInterval(poll);
+        stepEl.textContent = 'Ошибка: ' + (st.error || '').slice(0, 200);
+        setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 4000);
+      }
+    }, 1500);
+  }
+  window.runMasterSync = runMasterSync;
 
   // ============ Модалка причины ============
   function openReasonModal(deviationId) {

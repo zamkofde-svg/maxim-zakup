@@ -61,17 +61,18 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    """МИНИМАЛЬНЫЙ startup: только init_db. Всё в try — приложение никогда
-    не должно падать на старте, иначе healthcheck не пройдёт."""
+    """МИНИМАЛЬНЫЙ startup: только init_db + scheduler. Всё в try."""
     try:
         init_db()
-        print(f"[startup] init_db OK")
+        print(f"[startup] init_db OK", flush=True)
     except Exception as e:
-        # Не падаем — приложение поднимется, /healthz будет отвечать,
-        # позже можно дернуть /api/sync вручную
         import traceback
-        print(f"[startup] init_db FAILED (продолжаем): {e}")
+        print(f"[startup] init_db FAILED (продолжаем): {e}", flush=True)
         traceback.print_exc()
+    try:
+        _setup_scheduler()
+    except Exception as e:
+        print(f"[startup] scheduler FAILED (продолжаем): {e}", flush=True)
 
 
 # ============ HEALTH / STATS ============
@@ -418,6 +419,7 @@ def set_reason(
 # ============ SYNC (Drive → DB) ============
 
 _sync_state = {"status": "idle", "started_at": None, "finished_at": None, "log": []}
+_master_sync_state = {"status": "idle", "started_at": None, "finished_at": None, "result": None, "error": None}
 
 
 def _do_sync():
@@ -461,6 +463,76 @@ def trigger_sync(background_tasks: BackgroundTasks):
 @app.get("/api/sync/status")
 def sync_status():
     return _sync_state
+
+
+# ============ MASTER → SUPPLIERS SYNC ============
+
+def _do_master_sync(dry_run: bool = False):
+    import sys as _sys
+    _master_sync_state["status"] = "running"
+    _master_sync_state["started_at"] = datetime.utcnow().isoformat()
+    _master_sync_state["finished_at"] = None
+    _master_sync_state["result"] = None
+    _master_sync_state["error"] = None
+    try:
+        # Импортируем здесь чтобы избежать конфликта при тестах
+        etl_path = str(Path(__file__).parent.parent / "etl")
+        if etl_path not in _sys.path:
+            _sys.path.insert(0, etl_path)
+        from sync_master_to_suppliers import sync as do_sync  # noqa
+        result = do_sync(dry_run=dry_run)
+        _master_sync_state["result"] = result
+        _master_sync_state["status"] = "ok"
+    except Exception as e:
+        import traceback
+        _master_sync_state["status"] = "error"
+        _master_sync_state["error"] = f"{type(e).__name__}: {e}\n{traceback.format_exc()[-500:]}"
+    finally:
+        _master_sync_state["finished_at"] = datetime.utcnow().isoformat()
+
+
+@app.post("/api/sync-master")
+def trigger_master_sync(background_tasks: BackgroundTasks, dry_run: bool = Query(False)):
+    """Раскатывает мастер-матрицу по матрицам всех поставщиков.
+    Аддитивная операция: создаёт недостающие вкладки и дописывает строки.
+    Цены поставщика не трогаются.
+    """
+    if _master_sync_state["status"] == "running":
+        raise HTTPException(409, "Уже идёт sync мастер→поставщики")
+    background_tasks.add_task(_do_master_sync, dry_run)
+    return {"status": "started", "dry_run": dry_run}
+
+
+@app.get("/api/sync-master/status")
+def master_sync_status():
+    return _master_sync_state
+
+
+# ============ APSCHEDULER: cron 06:00 Тюмень (UTC+5) → 01:00 UTC ============
+
+_scheduler = None
+
+
+def _setup_scheduler():
+    global _scheduler
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        if _scheduler is not None:
+            return
+        _scheduler = BackgroundScheduler(timezone="UTC")
+        # 06:00 Asia/Yekaterinburg (Тюмень) = 01:00 UTC
+        _scheduler.add_job(
+            _do_sync,
+            CronTrigger(hour=1, minute=0, timezone="UTC"),
+            id="daily_drive_sync",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        _scheduler.start()
+        print("[scheduler] APScheduler запущен. Daily sync at 01:00 UTC (06:00 Тюмень)", flush=True)
+    except Exception as e:
+        print(f"[scheduler] init failed: {e}", flush=True)
 
 
 # ============ PERIODS ============
