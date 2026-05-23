@@ -40,6 +40,7 @@ SAMPLES_DIR = Path(__file__).parent.parent / "sample-data"
 
 MASTER_FILE = "Матрица(для изменения позиций).xlsx"
 MAPPING_FILE = "Карта сопоставлений.xlsx"
+FACTS_DIR = DRIVE_DIR / "facts"  # подпапка для выгрузок iiko/SH
 
 # Служебные файлы — НЕ матрицы поставщиков (от старого разработчика, не парсим)
 NON_SUPPLIER_FILES = {
@@ -65,11 +66,29 @@ def discover_supplier_matrices(drive_dir: Path) -> list[tuple[str, Path]]:
         result.append((supplier_name, path))
     return result
 
-# Какие выгрузки факта закупок и как их интерпретировать
-FACT_FILES = [
-    {"path": SAMPLES_DIR / "iiko_or_sh_1.xls",  "format": "storehouse", "system": "SH"},
-    {"path": SAMPLES_DIR / "iiko_or_sh_2.xlsx", "format": "iiko",       "system": "SH"},
-]
+def detect_fact_format(path: Path) -> str:
+    """Авто-детект формата выгрузки факта по содержимому файла.
+    StoreHouse экспортит XML с расширением .xls, iiko — настоящий xlsx.
+    """
+    with open(path, "rb") as f:
+        head = f.read(200)
+    if head.startswith(b"<?xml") or b"spreadsheet" in head[:200].lower():
+        return "storehouse"
+    return "iiko"
+
+
+def discover_fact_files() -> list[dict]:
+    """Сканирует подпапку drive-sync/facts/ и возвращает список файлов с auto-detected форматом."""
+    if not FACTS_DIR.exists():
+        return []
+    result = []
+    for p in sorted(FACTS_DIR.glob("*")):
+        if not (p.suffix.lower() in (".xls", ".xlsx")):
+            continue
+        fmt = detect_fact_format(p)
+        # система учёта — пока всем SH; в будущем — по имени файла можно различать
+        result.append({"path": p, "format": fmt, "system": "SH"})
+    return result
 
 # Категории и юнит-тайп для каждой
 CATEGORY_UNITS = {
@@ -319,8 +338,24 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
 
 
 def import_facts(db: Session) -> dict:
-    """Загружает выгрузки факта и сразу матчит → deviations."""
-    # Чистим старое (для MVP — переимпорт всегда полный)
+    """Загружает выгрузки факта и сразу матчит → deviations.
+
+    ВАЖНО: сохраняем указанные шефами причины ДО wipe и восстанавливаем
+    по натуральному ключу (дата, товар, поставщик, ресторан).
+    """
+    # 1. СНАЧАЛА сохраняем все указанные причины (по натуральному ключу)
+    saved_reasons = {}  # (date, raw_product, raw_supplier, raw_restaurant) → (reason_text, reason_category)
+    for dev, pf in db.execute(
+        select(Deviation, PurchaseFact)
+        .join(PurchaseFact, Deviation.purchase_fact_id == PurchaseFact.id)
+        .where((Deviation.reason_text != None) | (Deviation.reason_category != None))
+    ).all():
+        key = (pf.date.isoformat(), pf.raw_product, pf.raw_supplier, pf.raw_restaurant or "")
+        saved_reasons[key] = (dev.reason_text, dev.reason_category)
+    if saved_reasons:
+        print(f"   → сохранено {len(saved_reasons)} причин для восстановления после пересчёта")
+
+    # 2. Чистим старое (для MVP — переимпорт всегда полный)
     db.execute(delete(Deviation))
     db.execute(delete(PurchaseFact))
     db.flush()
@@ -401,13 +436,29 @@ def import_facts(db: Session) -> dict:
     total_facts = 0
     bucket = {}
 
-    for spec in FACT_FILES:
+    fact_files = discover_fact_files()
+    # Дополнительно — sample-data для совместимости (на проде они не будут существовать)
+    legacy = [
+        {"path": SAMPLES_DIR / "iiko_or_sh_1.xls",  "format": "storehouse", "system": "SH"},
+        {"path": SAMPLES_DIR / "iiko_or_sh_2.xlsx", "format": "iiko",       "system": "SH"},
+    ]
+    for spec in legacy:
+        if spec["path"].exists():
+            fact_files.append(spec)
+    print(f"→ найдено файлов факта: {len(fact_files)}")
+
+    for spec in fact_files:
         if not spec["path"].exists():
             continue
-        if spec["format"] == "iiko":
-            facts = parse_iiko(spec["path"])
-        else:
-            facts = parse_storehouse(spec["path"])
+        try:
+            if spec["format"] == "iiko":
+                facts = parse_iiko(spec["path"])
+            else:
+                facts = parse_storehouse(spec["path"])
+            print(f"   → {spec['path'].name} ({spec['format']}): {len(facts)} записей")
+        except Exception as e:
+            print(f"   ⚠ {spec['path'].name} ({spec['format']}): ошибка {type(e).__name__}: {e}")
+            continue
 
         system = sys_cache.get(spec["system"])
 
@@ -503,10 +554,15 @@ def import_facts(db: Session) -> dict:
                     else:
                         dev.status = "red"
 
+            # Восстанавливаем причину если она была указана раньше
+            key = (d.isoformat(), f.product, f.supplier, f.restaurant or "")
+            if key in saved_reasons:
+                dev.reason_text, dev.reason_category = saved_reasons[key]
+
             db.add(dev)
             bucket[dev.status] = bucket.get(dev.status, 0) + 1
 
-    return {"total_facts": total_facts, "buckets": bucket}
+    return {"total_facts": total_facts, "buckets": bucket, "reasons_restored": sum(1 for _ in saved_reasons)}
 
 
 # ============ MAIN ============

@@ -28,7 +28,7 @@ for sig_name in ("SIGTERM", "SIGINT", "SIGHUP"):
     except Exception as e:
         print(f"[boot] couldn't install {sig_name} handler: {e}", flush=True)
 
-from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -43,7 +43,12 @@ from backend.models import (
     ProductMaster, AccountingAlias,
     PriceQuote, PriceHistory,
     PurchaseFact, Deviation,
-    ImportRun, UnmappedItem,
+    ImportRun, UnmappedItem, User,
+)
+from backend.auth import (
+    current_user, require_role, verify_password,
+    make_session_token, COOKIE_NAME, COOKIE_MAX_AGE,
+    ensure_default_users,
 )
 
 # ---- App init ----
@@ -61,7 +66,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    """МИНИМАЛЬНЫЙ startup: только init_db + scheduler. Всё в try."""
+    """МИНИМАЛЬНЫЙ startup: init_db + дефолтные юзеры + scheduler. Всё в try."""
     try:
         init_db()
         print(f"[startup] init_db OK", flush=True)
@@ -70,9 +75,45 @@ def on_startup():
         print(f"[startup] init_db FAILED (продолжаем): {e}", flush=True)
         traceback.print_exc()
     try:
+        ensure_default_users()
+    except Exception as e:
+        print(f"[startup] ensure_default_users FAILED: {e}", flush=True)
+    try:
         _setup_scheduler()
     except Exception as e:
         print(f"[startup] scheduler FAILED (продолжаем): {e}", flush=True)
+
+
+# ============ AUTH ENDPOINTS ============
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    user = db.execute(select(User).where(User.username == body.username)).scalar_one_or_none()
+    if not user or not user.is_active or not verify_password(body.password, user.password_hash):
+        raise HTTPException(401, "Неверный логин или пароль")
+    token = make_session_token(user.id, user.role, user.username)
+    response.set_cookie(
+        key=COOKIE_NAME, value=token,
+        max_age=COOKIE_MAX_AGE, httponly=True, samesite="lax",
+        secure=False,  # на HTTPS поменять на True
+    )
+    return {"username": user.username, "role": user.role, "full_name": user.full_name}
+
+
+@app.post("/api/auth/logout")
+def logout(response: Response):
+    response.delete_cookie(COOKIE_NAME)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def me(user: User = Depends(current_user)):
+    return {"username": user.username, "role": user.role, "full_name": user.full_name}
 
 
 # ============ HEALTH / STATS ============
@@ -468,6 +509,7 @@ def set_reason(
     deviation_id: int,
     body: ReasonIn,
     db: Session = Depends(get_db),
+    user: User = Depends(require_role("buyer", "chef")),
 ):
     dev = db.get(Deviation, deviation_id)
     if not dev:
@@ -515,7 +557,7 @@ def _do_sync():
 
 
 @app.post("/api/sync")
-def trigger_sync(background_tasks: BackgroundTasks):
+def trigger_sync(background_tasks: BackgroundTasks, user: User = Depends(require_role("buyer"))):
     if _sync_state["status"] == "running":
         raise HTTPException(409, "Уже идёт синхронизация")
     background_tasks.add_task(_do_sync)
@@ -525,6 +567,52 @@ def trigger_sync(background_tasks: BackgroundTasks):
 @app.get("/api/sync/status")
 def sync_status():
     return _sync_state
+
+
+# Отдельный sync только фактов (быстрее, не трогает мастер и матрицы)
+_facts_sync_state = {"status": "idle", "started_at": None, "finished_at": None, "log": []}
+
+
+def _do_facts_sync():
+    _facts_sync_state["status"] = "running"
+    _facts_sync_state["started_at"] = datetime.utcnow().isoformat()
+    _facts_sync_state["finished_at"] = None
+    _facts_sync_state["log"] = []
+    root = Path(__file__).parent.parent
+
+    def step(name, cmd):
+        _facts_sync_state["log"].append({"step": name, "started": datetime.utcnow().isoformat()})
+        result = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True, timeout=300)
+        _facts_sync_state["log"][-1]["finished"] = datetime.utcnow().isoformat()
+        _facts_sync_state["log"][-1]["returncode"] = result.returncode
+        if result.returncode != 0:
+            _facts_sync_state["log"][-1]["error"] = result.stderr[-500:]
+
+    try:
+        # Полный sync (он тащит и подпапку facts/) + переимпорт (он подхватит факты)
+        step("drive_sync", [sys.executable, "-m", "etl.sync_from_drive"])
+        step("importer", [sys.executable, "-m", "backend.importer"])
+        _facts_sync_state["status"] = "ok"
+    except Exception as e:
+        _facts_sync_state["status"] = "error"
+        _facts_sync_state["log"].append({"error": str(e)})
+    finally:
+        _facts_sync_state["finished_at"] = datetime.utcnow().isoformat()
+
+
+@app.post("/api/sync-facts")
+def trigger_facts_sync(background_tasks: BackgroundTasks, user: User = Depends(require_role("buyer"))):
+    """Подтягивает выгрузки iiko/SH из подпапки Drive «Факты iiko-SH»
+    и пересчитывает отклонения. Сохранённые шефами причины не теряются."""
+    if _facts_sync_state["status"] == "running":
+        raise HTTPException(409, "Уже идёт обновление выгрузок")
+    background_tasks.add_task(_do_facts_sync)
+    return {"status": "started"}
+
+
+@app.get("/api/sync-facts/status")
+def facts_sync_status():
+    return _facts_sync_state
 
 
 # ============ MASTER → SUPPLIERS SYNC ============
@@ -554,7 +642,8 @@ def _do_master_sync(dry_run: bool = False):
 
 
 @app.post("/api/sync-master")
-def trigger_master_sync(background_tasks: BackgroundTasks, dry_run: bool = Query(False)):
+def trigger_master_sync(background_tasks: BackgroundTasks, dry_run: bool = Query(False),
+                       user: User = Depends(require_role("buyer"))):
     """Раскатывает мастер-матрицу по матрицам всех поставщиков.
     Аддитивная операция: создаёт недостающие вкладки и дописывает строки.
     Цены поставщика не трогаются.
@@ -738,7 +827,8 @@ def _build_ceo_context(db: Session) -> dict:
 
 
 @app.post("/api/ai/ceo_summary")
-def generate_ceo_summary(db: Session = Depends(get_db), force: bool = Query(False)):
+def generate_ceo_summary(db: Session = Depends(get_db), force: bool = Query(False),
+                         user: User = Depends(require_role("buyer"))):
     """Генерирует CEO-сводку через OpenRouter (Claude). Кеширует на час."""
     if not force and _ai_cache.get("summary") and _ai_cache.get("generated_at"):
         age = (datetime.utcnow() - _ai_cache["generated_at"]).total_seconds()

@@ -69,27 +69,72 @@ def download_file(service, file_id: str, name: str, mime: str, out_path: Path) -
     return len(data)
 
 
+FACTS_SUBFOLDER_NAME = "Факты iiko-SH"
+FACTS_OUT_DIR = OUT_DIR / "facts"
+
+
 def sync():
-    """Скачивает все файлы из расшаренной папки Drive в OUT_DIR. Возвращает счётчик."""
+    """Скачивает все файлы из Drive (матрицы + мастер + карту) → OUT_DIR.
+    Отдельно скачивает выгрузки факта из подпапки «Факты iiko-SH» → OUT_DIR/facts.
+    Возвращает счётчик."""
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    FACTS_OUT_DIR.mkdir(parents=True, exist_ok=True)
     svc = get_service()
+
+    # 1. Все файлы и папки
     resp = svc.files().list(
         pageSize=200,
-        fields="files(id, name, mimeType, modifiedTime)",
+        fields="files(id, name, mimeType, modifiedTime, parents)",
         corpora="allDrives",
         includeItemsFromAllDrives=True,
         supportsAllDrives=True,
-        q="mimeType != 'application/vnd.google-apps.folder'",
     ).execute()
-    files = resp.get("files", [])
+    all_items = resp.get("files", [])
+
+    # Находим подпапку «Факты iiko-SH»
+    facts_folder = next(
+        (f for f in all_items
+         if f["mimeType"] == "application/vnd.google-apps.folder" and f["name"] == FACTS_SUBFOLDER_NAME),
+        None
+    )
+    facts_folder_id = facts_folder["id"] if facts_folder else None
+
     total_bytes = 0
-    for f in files:
+    files_main = 0
+    files_facts = 0
+
+    for f in all_items:
+        if f["mimeType"] == "application/vnd.google-apps.folder":
+            continue
+
+        parents = f.get("parents", [])
+        is_in_facts = facts_folder_id and (facts_folder_id in parents)
+
         out_name = safe_filename(f["name"])
-        if not out_name.endswith(".xlsx"):
+        # Факты могут быть .xls (StoreHouse XML) и .xlsx (iiko) — сохраняем оригинальное расширение
+        # Если файл — Google Sheet, экспортируется как .xlsx
+        if f["mimeType"] == "application/vnd.google-apps.spreadsheet":
+            if not out_name.endswith(".xlsx"):
+                out_name += ".xlsx"
+        # для остальных оставляем как есть (.xls / .xlsx)
+        elif not (out_name.endswith(".xlsx") or out_name.endswith(".xls")):
             out_name += ".xlsx"
-        out_path = OUT_DIR / out_name
+
+        if is_in_facts:
+            out_path = FACTS_OUT_DIR / out_name
+            files_facts += 1
+        else:
+            out_path = OUT_DIR / out_name
+            files_main += 1
+
         total_bytes += download_file(svc, f["id"], f["name"], f["mimeType"], out_path)
-    return {"files": len(files), "bytes": total_bytes}
+
+    return {
+        "files_main": files_main,
+        "files_facts": files_facts,
+        "bytes": total_bytes,
+        "facts_folder_found": bool(facts_folder),
+    }
 
 
 def main():

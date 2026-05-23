@@ -33,7 +33,28 @@
 </head>
 <body class="text-slate-900">
 
-<div class="flex h-screen overflow-hidden">
+<!-- LOGIN OVERLAY -->
+<div id="login-overlay" class="fixed inset-0 bg-slate-900 hidden items-center justify-center z-50">
+  <div class="bg-white rounded-2xl p-8 w-96 shadow-2xl">
+    <div class="text-center mb-6">
+      <img src="/assets/maxim-mark.svg" alt="МАКСИМ" class="w-16 h-16 mx-auto mb-3" />
+      <div class="font-bold text-xl text-slate-900">Закупки Максим</div>
+      <div class="text-xs text-slate-500 mt-1">Тюмень</div>
+    </div>
+    <form id="login-form" onsubmit="doLogin(event)">
+      <input id="login-username" type="text" placeholder="Логин" autocomplete="username"
+             class="w-full border border-slate-200 rounded-lg px-3 py-2 mb-3 text-sm" required autofocus />
+      <input id="login-password" type="password" placeholder="Пароль" autocomplete="current-password"
+             class="w-full border border-slate-200 rounded-lg px-3 py-2 mb-3 text-sm" required />
+      <div id="login-error" class="text-sm text-red-600 mb-3 hidden"></div>
+      <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg font-medium text-sm">
+        Войти
+      </button>
+    </form>
+  </div>
+</div>
+
+<div id="app-shell" class="flex h-screen overflow-hidden">
 
   <!-- SIDEBAR -->
   <aside class="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
@@ -87,7 +108,7 @@
       </a>
     </nav>
 
-    <div class="p-3 border-t border-slate-200">
+    <div class="p-3 border-t border-slate-200 space-y-2">
       <div class="bg-slate-50 rounded-lg p-3">
         <div class="flex items-center gap-2 text-xs text-slate-500 mb-1">
           <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span>
@@ -95,6 +116,16 @@
         </div>
         <div class="text-sm font-medium text-slate-900" id="last-import-time">—</div>
         <div class="text-xs text-slate-500 mt-0.5" id="last-import-sub">данных нет</div>
+      </div>
+      <div class="bg-slate-50 rounded-lg p-3 flex items-center gap-2">
+        <div class="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold" id="user-initials">?</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-slate-900 truncate" id="user-name">—</div>
+          <div class="text-xs text-slate-500" id="user-role">—</div>
+        </div>
+        <button onclick="doLogout()" class="text-slate-400 hover:text-slate-700" title="Выйти">
+          <i data-lucide="log-out" class="w-4 h-4"></i>
+        </button>
       </div>
     </div>
   </aside>
@@ -116,7 +147,7 @@
               <option value="">все периоды</option>
             </select>
           </div>
-          <button onclick="runRecalc()" id="recalc-btn" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+          <button onclick="runRecalc()" id="recalc-btn" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
             <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             Запустить пересчёт
           </button>
@@ -596,6 +627,19 @@
     <!-- ============ ANALYSIS ============ -->
     <div id="page-analysis" class="page p-8">
 
+      <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 flex items-center gap-4">
+        <i data-lucide="cloud-download" class="w-5 h-5 text-indigo-600 flex-shrink-0"></i>
+        <div class="flex-1">
+          <div class="font-medium text-slate-900 text-sm">Выгрузки iiko / StoreHouse</div>
+          <div class="text-xs text-slate-500">Положите выгрузку в подпапку <b>«Факты iiko-SH»</b> на Google Drive и нажмите кнопку — система пересчитает отклонения</div>
+        </div>
+        <button onclick="runFactsSync()" id="facts-sync-btn"
+                class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          Обновить выгрузки
+        </button>
+      </div>
+
       <div class="grid grid-cols-4 gap-4 mb-4">
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">🟢 По Топ-2</div>
@@ -847,7 +891,7 @@
             <h3 class="font-semibold text-slate-900">Поставщики · <span id="suppliers-count">…</span> активных</h3>
             <p class="text-xs text-slate-500 mt-0.5">Структура матриц должна совпадать с мастер-матрицей</p>
           </div>
-          <button onclick="runMasterSync()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+          <button onclick="runMasterSync()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
             <i data-lucide="git-fork" class="w-4 h-4"></i>
             Обновить по мастер-матрице
           </button>
@@ -1309,18 +1353,100 @@
   }
 
   // =========================================================
-  // API integration: подменяет демо-данные на живые из бэкенда
-  // Если API недоступен (GitHub Pages, нет CORS) — остаются демо
+  // API integration + auth
   // =========================================================
-  const API_BASE = '/api';  // когда FastAPI отдаёт и статику, и API
+  const API_BASE = '/api';
+  let CURRENT_USER = null;  // {username, role, full_name}
 
   async function tryFetch(url, opts) {
     try {
-      const r = await fetch(url, { cache: 'no-store', ...(opts || {}) });
+      const r = await fetch(url, { cache: 'no-store', credentials: 'include', ...(opts || {}) });
+      if (r.status === 401) { showLogin(); return null; }
       if (!r.ok) return null;
       return await r.json();
     } catch (e) {
       return null;
+    }
+  }
+
+  // ============ AUTH ============
+  function showLogin() {
+    document.getElementById('login-overlay').classList.remove('hidden');
+    document.getElementById('login-overlay').classList.add('flex');
+    document.getElementById('app-shell').style.display = 'none';
+  }
+  function hideLogin() {
+    document.getElementById('login-overlay').classList.add('hidden');
+    document.getElementById('login-overlay').classList.remove('flex');
+    document.getElementById('app-shell').style.display = '';
+  }
+
+  async function doLogin(e) {
+    e.preventDefault();
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const err = document.getElementById('login-error');
+    err.classList.add('hidden');
+    try {
+      const r = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username, password}),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        err.textContent = j.detail || 'Ошибка входа';
+        err.classList.remove('hidden');
+        return;
+      }
+      CURRENT_USER = await r.json();
+      hideLogin();
+      applyRoleVisibility();
+      initApp();
+    } catch (e) {
+      err.textContent = 'Сеть недоступна';
+      err.classList.remove('hidden');
+    }
+  }
+  window.doLogin = doLogin;
+
+  async function doLogout() {
+    await fetch(`${API_BASE}/auth/logout`, {method: 'POST', credentials: 'include'});
+    CURRENT_USER = null;
+    showLogin();
+  }
+  window.doLogout = doLogout;
+
+  function applyRoleVisibility() {
+    // Шеф видит только: Анализ закупок + Рекомендации
+    const isBuyer = CURRENT_USER && CURRENT_USER.role === 'buyer';
+    const chefAllowedPages = new Set(['analysis', 'recommendations']);
+
+    // Скрываем пункты меню
+    document.querySelectorAll('.nav-item').forEach(item => {
+      const page = item.dataset.page;
+      if (!isBuyer && !chefAllowedPages.has(page)) {
+        item.style.display = 'none';
+      } else {
+        item.style.display = '';
+      }
+    });
+
+    // Скрываем элементы с классом buyer-only для шефа
+    document.querySelectorAll('.buyer-only').forEach(el => {
+      el.style.display = isBuyer ? '' : 'none';
+    });
+
+    // Обновляем плашку пользователя
+    document.getElementById('user-name').textContent = CURRENT_USER.full_name || CURRENT_USER.username;
+    document.getElementById('user-role').textContent = CURRENT_USER.role === 'buyer' ? 'Закупки' : 'Шеф-повар';
+    const init = (CURRENT_USER.full_name || CURRENT_USER.username || '?').slice(0, 2).toUpperCase();
+    document.getElementById('user-initials').textContent = init;
+
+    // Если шеф — навигируем на разрешённую страницу
+    if (!isBuyer) {
+      navigate('recommendations');
     }
   }
 
@@ -2002,8 +2128,47 @@
     }
   }
 
-  // Запускаем гидрацию после первоначальной отрисовки
-  window.addEventListener('load', () => {
+  // ============ Обновить выгрузки (sync-facts) ============
+  async function runFactsSync() {
+    const overlay = document.getElementById('recalc-overlay');
+    const progress = document.getElementById('recalc-progress');
+    const stepEl = document.getElementById('recalc-step');
+    const timeEl = document.getElementById('recalc-time');
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flex');
+    progress.style.width = '5%';
+    stepEl.textContent = 'Тащим выгрузки из подпапки «Факты iiko-SH»...';
+    timeEl.textContent = '';
+
+    const started = Date.now();
+    const resp = await fetch(`${API_BASE}/sync-facts`, {method: 'POST', credentials: 'include'});
+    if (!resp.ok) {
+      stepEl.textContent = 'Ошибка: ' + resp.status;
+      setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 2000);
+      return;
+    }
+    const poll = setInterval(async () => {
+      const st = await tryFetch(`${API_BASE}/sync-facts/status`);
+      if (!st) return;
+      const elapsed = Math.round((Date.now() - started) / 1000);
+      timeEl.textContent = elapsed + ' сек';
+      if (st.log && st.log.length) {
+        const last = st.log[st.log.length - 1];
+        stepEl.textContent = last.step === 'drive_sync' ? 'Скачивание файлов...' : 'Пересчёт отклонений...';
+      }
+      progress.style.width = Math.min(85, 5 + elapsed * 4) + '%';
+      if (st.status === 'ok' || st.status === 'error') {
+        clearInterval(poll);
+        progress.style.width = '100%';
+        stepEl.textContent = st.status === 'ok' ? 'Готово ✓ Перезагружаем...' : 'Ошибка';
+        setTimeout(() => location.reload(), 1200);
+      }
+    }, 1500);
+  }
+  window.runFactsSync = runFactsSync;
+
+  // ============ Инициализация: сначала auth-чек ============
+  async function initApp() {
     hideNotReadyPages();
     hydratePeriodSelect();
     hydrateDashboard();
@@ -2012,7 +2177,6 @@
     hydrateSuppliers();
     hydrateMapping();
 
-    // Обновляем счётчик отклонений в sidebar
     tryFetch(`${API_BASE}/dashboard/summary`).then(s => {
       if (!s) return;
       const sc = s.status_counts || {};
@@ -2020,6 +2184,18 @@
       const badge = document.querySelector('[data-page="analysis"] span.ml-auto');
       if (badge) badge.textContent = total;
     });
+  }
+
+  window.addEventListener('load', async () => {
+    // Сначала проверяем кто я
+    const me = await fetch(`${API_BASE}/auth/me`, {credentials: 'include'}).then(r => r.ok ? r.json() : null).catch(() => null);
+    if (!me) {
+      showLogin();
+    } else {
+      CURRENT_USER = me;
+      applyRoleVisibility();
+      initApp();
+    }
   });
 </script>
 
