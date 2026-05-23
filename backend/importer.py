@@ -38,15 +38,32 @@ import os
 DRIVE_DIR = Path(os.environ.get("DRIVE_SYNC_DIR", str(Path(__file__).parent.parent / "sample-data" / "drive-sync")))
 SAMPLES_DIR = Path(__file__).parent.parent / "sample-data"
 
-# Какие файлы в Drive — что
-MATRIX_FILES = [
-    "ООО УРАЛ ФУД.xlsx",
-    "ООО Метро Кэш энд Керри.xlsx",
-    "ООО Орбита и К.xlsx",
-    "ООО ЕвроСиб-Трейд.xlsx",
-]
 MASTER_FILE = "Матрица(для изменения позиций).xlsx"
 MAPPING_FILE = "Карта сопоставлений.xlsx"
+
+# Служебные файлы — НЕ матрицы поставщиков (от старого разработчика, не парсим)
+NON_SUPPLIER_FILES = {
+    MASTER_FILE, MAPPING_FILE,
+    "Топ 2.xlsx", "Сопоставление.xlsx", "Сводная.xlsx",
+}
+
+# Префиксы названий организаций — то, что начинается так, считаем матрицей поставщика
+SUPPLIER_PREFIXES = ("ООО ", "АО ", "ИП ", "ПАО ", "ЗАО ", "АО ")
+
+
+def discover_supplier_matrices(drive_dir: Path) -> list[tuple[str, Path]]:
+    """Авто-сканирование папки drive-sync: все .xlsx с названием поставщика."""
+    result = []
+    for path in sorted(drive_dir.glob("*.xlsx")):
+        name = path.name
+        if name in NON_SUPPLIER_FILES:
+            continue
+        if not any(name.startswith(p) for p in SUPPLIER_PREFIXES):
+            continue
+        # Имя поставщика = имя файла без .xlsx
+        supplier_name = name[:-len(".xlsx")]
+        result.append((supplier_name, path))
+    return result
 
 # Какие выгрузки факта закупок и как их интерпретировать
 FACT_FILES = [
@@ -449,12 +466,9 @@ def main():
         r = import_mapping(db, mapping_path)
         print(f"→ mapping: {r}")
 
-    for fname in MATRIX_FILES:
-        path = DRIVE_DIR / fname
-        if not path.exists():
-            print(f"  ⚠ {fname} не найден в Drive")
-            continue
-        sup_name = fname.replace(".xlsx", "")
+    matrices = discover_supplier_matrices(DRIVE_DIR)
+    print(f"→ найдено матриц поставщиков: {len(matrices)}")
+    for sup_name, path in matrices:
         r = import_supplier_matrix(db, path, sup_name)
         print(f"→ matrix {sup_name}: {r}")
 
