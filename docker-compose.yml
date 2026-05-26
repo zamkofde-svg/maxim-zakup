@@ -1,13 +1,13 @@
 # Maxim Zakup — production
-# Запуск на VPS: docker compose up -d --build
+# Caddy установлен на хост через apt (не в docker), проксирует на 127.0.0.1:8000
 
 services:
   app:
     build: .
     container_name: maxim-zakup
     restart: unless-stopped
-    expose:
-      - "8000"   # только в внутренней сети docker, наружу не пробрасываем
+    ports:
+      - "127.0.0.1:8000:8000"  # только локалхост хоста — снаружи доступ через Caddy
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - GOOGLE_SA_JSON_CONTENT=${GOOGLE_SA_JSON_CONTENT}
@@ -22,21 +22,5 @@ services:
       retries: 3
       start_period: 30s
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: maxim-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data       # сертификаты Let's Encrypt
-      - caddy-config:/config
-    depends_on:
-      - app
-
 volumes:
   app-data:
-  caddy-data:
-  caddy-config:
