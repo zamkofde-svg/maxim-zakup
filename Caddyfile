@@ -1,30 +1,25 @@
 # Caddyfile — reverse proxy с автоматическим HTTPS от Let's Encrypt
-# Запускается через docker compose (см. docker-compose.yml).
+# Caddy установлен на хост через apt. Проксирует на docker-контейнер (127.0.0.1:8000).
 
 maxim-rest.tech, www.maxim-rest.tech {
-    # Caddy сам получит сертификат от Let's Encrypt и будет автопродлевать
-    reverse_proxy app:8000
+    reverse_proxy 127.0.0.1:8000
 
-    # сжатие ответов
     encode gzip zstd
 
-    # секурити-хедеры
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
         X-Content-Type-Options "nosniff"
         Referrer-Policy "strict-origin-when-cross-origin"
-        # для красивых ошибок Caddy
         -Server
     }
 
-    # лог в формате JSON (доступен через docker compose logs caddy)
     log {
         output stdout
         format console
     }
 }
 
-# Доступ по IP — оставляем без HTTPS как fallback (для отладки)
+# Fallback по IP без HTTPS — для отладки
 :80 {
-    reverse_proxy app:8000
+    reverse_proxy 127.0.0.1:8000
 }
