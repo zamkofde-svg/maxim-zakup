@@ -1470,8 +1470,16 @@
 
   function fmtTime(iso) {
     if (!iso) return '—';
-    const d = new Date(iso);
-    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    // Бэкенд отдаёт UTC без 'Z' — добавляем суффикс чтобы JS не считал локальным
+    const iso_utc = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+    const d = new Date(iso_utc);
+    if (isNaN(d.getTime())) return '—';
+    // Жёстко тюменское время (UTC+5, Asia/Yekaterinburg) независимо от локали браузера
+    return d.toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+      timeZone: 'Asia/Yekaterinburg',
+    });
   }
 
   // Глобальный кеш категорий (загружается при старте)
