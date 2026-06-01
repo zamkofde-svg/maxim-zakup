@@ -617,7 +617,7 @@ def facts_sync_status():
 
 # ============ MASTER → SUPPLIERS SYNC ============
 
-def _do_master_sync(dry_run: bool = False):
+def _do_master_sync(dry_run: bool = False, prune: bool = True):
     import sys as _sys
     _master_sync_state["status"] = "running"
     _master_sync_state["started_at"] = datetime.utcnow().isoformat()
@@ -630,7 +630,7 @@ def _do_master_sync(dry_run: bool = False):
         if etl_path not in _sys.path:
             _sys.path.insert(0, etl_path)
         from sync_master_to_suppliers import sync as do_sync  # noqa
-        result = do_sync(dry_run=dry_run)
+        result = do_sync(dry_run=dry_run, prune=prune)
         _master_sync_state["result"] = result
         _master_sync_state["status"] = "ok"
     except Exception as e:
@@ -642,16 +642,28 @@ def _do_master_sync(dry_run: bool = False):
 
 
 @app.post("/api/sync-master")
-def trigger_master_sync(background_tasks: BackgroundTasks, dry_run: bool = Query(False),
+def trigger_master_sync(background_tasks: BackgroundTasks,
+                       dry_run: bool = Query(False),
+                       prune: bool = Query(True),
+                       confirm: str = Query(""),
                        user: User = Depends(require_role("buyer"))):
     """Раскатывает мастер-матрицу по матрицам всех поставщиков.
-    Аддитивная операция: создаёт недостающие вкладки и дописывает строки.
-    Цены поставщика не трогаются.
+
+    prune=True (по умолчанию): приведение к единому виду — создаёт нужные вкладки
+    из whitelist, дописывает позиции мастера, УДАЛЯЕТ у поставщиков позиции
+    которых нет в мастере, и УДАЛЯЕТ вкладки которых нет в их whitelist.
+    Цены в оставшихся позициях НЕ трогаются.
+
+    prune=False: только добавление (старое поведение).
+
+    Защита: при prune=True требуется query confirm=PRUNE-CONFIRM (защита от случайных POST).
     """
     if _master_sync_state["status"] == "running":
         raise HTTPException(409, "Уже идёт sync мастер→поставщики")
-    background_tasks.add_task(_do_master_sync, dry_run)
-    return {"status": "started", "dry_run": dry_run}
+    if prune and confirm != "PRUNE-CONFIRM":
+        raise HTTPException(400, "prune=true требует confirm=PRUNE-CONFIRM (защита от случайного запуска)")
+    background_tasks.add_task(_do_master_sync, dry_run, prune)
+    return {"status": "started", "dry_run": dry_run, "prune": prune}
 
 
 @app.get("/api/sync-master/status")

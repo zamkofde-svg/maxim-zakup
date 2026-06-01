@@ -903,7 +903,7 @@
         <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h3 class="font-semibold text-slate-900">Поставщики · <span id="suppliers-count">…</span> активных</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Структура матриц должна совпадать с мастер-матрицей</p>
+            <p class="text-xs text-slate-500 mt-0.5">Кнопка приведёт матрицы к мастеру (удалит лишнее, сохранит цены)</p>
           </div>
           <button onclick="runMasterSync()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
             <i data-lucide="git-fork" class="w-4 h-4"></i>
@@ -2123,7 +2123,61 @@
   window.closeChangesModal = closeChangesModal;
 
   // ============ Раскатать мастер → поставщики ============
-  async function runMasterSync() {
+  function runMasterSync() {
+    // 2-шаговое подтверждение: операция удаляет лишние позиции и вкладки у поставщиков
+    const modal = document.createElement('div');
+    modal.id = 'master-sync-confirm';
+    modal.className = 'fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50';
+    modal.innerHTML = `
+      <div class="bg-white rounded-2xl p-6 w-[480px] shadow-2xl">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+            <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-600"></i>
+          </div>
+          <div>
+            <div class="font-semibold text-slate-900 text-lg">Привести матрицы к единому виду?</div>
+            <div class="text-sm text-slate-600 mt-1">Это приведёт матрицы всех поставщиков в точное соответствие с мастером.</div>
+          </div>
+        </div>
+        <div class="bg-slate-50 rounded-lg p-3 text-sm text-slate-700 space-y-1.5 mb-4">
+          <div>• Создадутся недостающие вкладки и позиции из мастера</div>
+          <div>• <span class="text-red-600 font-medium">Удалятся позиции</span>, которых нет в мастере</div>
+          <div>• <span class="text-red-600 font-medium">Удалятся вкладки</span>, не предусмотренные для поставщика</div>
+          <div>• Цены в оставшихся позициях <span class="font-medium">сохранятся</span></div>
+        </div>
+        <div class="mb-4">
+          <label class="text-xs text-slate-600">Для подтверждения введите слово <span class="font-mono font-semibold">ПРИВЕСТИ</span>:</label>
+          <input id="master-sync-phrase" type="text" autocomplete="off"
+                 class="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                 placeholder="ПРИВЕСТИ">
+        </div>
+        <div class="flex justify-end gap-2">
+          <button id="master-sync-cancel" class="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-100">Отмена</button>
+          <button id="master-sync-go" disabled
+                  class="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed">
+            Привести к единому виду
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    if (window.lucide && lucide.createIcons) lucide.createIcons();
+
+    const phraseEl = modal.querySelector('#master-sync-phrase');
+    const goEl = modal.querySelector('#master-sync-go');
+    const cancelEl = modal.querySelector('#master-sync-cancel');
+    phraseEl.focus();
+    phraseEl.addEventListener('input', () => {
+      goEl.disabled = phraseEl.value.trim().toUpperCase() !== 'ПРИВЕСТИ';
+    });
+    cancelEl.addEventListener('click', () => modal.remove());
+    goEl.addEventListener('click', () => {
+      modal.remove();
+      _runMasterSyncReal();
+    });
+  }
+
+  async function _runMasterSyncReal() {
     const overlay = document.getElementById('recalc-overlay');
     const progress = document.getElementById('recalc-progress');
     const stepEl = document.getElementById('recalc-step');
@@ -2132,14 +2186,15 @@
     overlay.classList.remove('hidden');
     overlay.classList.add('flex');
     progress.style.width = '5%';
-    stepEl.textContent = 'Читаем мастер-матрицу из Google Drive...';
+    stepEl.textContent = 'Привожу матрицы поставщиков к мастеру…';
     timeEl.textContent = '';
 
     const started = Date.now();
-    const resp = await fetch(`${API_BASE}/sync-master`, { method: 'POST' });
+    const resp = await fetch(`${API_BASE}/sync-master?prune=true&confirm=PRUNE-CONFIRM`, { method: 'POST' });
     if (!resp.ok) {
-      stepEl.textContent = 'Ошибка запуска: ' + resp.status;
-      setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 2500);
+      const txt = await resp.text().catch(() => '');
+      stepEl.textContent = 'Ошибка запуска: ' + resp.status + ' ' + txt.slice(0, 120);
+      setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 3500);
       return;
     }
 
@@ -2154,11 +2209,16 @@
         clearInterval(poll);
         progress.style.width = '100%';
         const r = st.result || {};
-        stepEl.textContent = `Готово ✓ Вкладок: +${r.total_sheets_added || 0}, строк: +${r.total_rows_added || 0}, поставщиков: ${(r.supplier_changes || []).length}`;
+        const added_s = r.total_sheets_added || 0;
+        const deleted_s = r.total_sheets_deleted || 0;
+        const added_r = r.total_rows_added || 0;
+        const deleted_r = r.total_rows_deleted || 0;
+        const n_sup = (r.supplier_changes || []).length;
+        stepEl.textContent = `Готово ✓ вкладок +${added_s}/-${deleted_s}, строк +${added_r}/-${deleted_r}, поставщиков: ${n_sup}`;
         setTimeout(() => {
           overlay.classList.add('hidden');
           overlay.classList.remove('flex');
-          alert(`Мастер раскатан по поставщикам:\n• Новых вкладок: ${r.total_sheets_added || 0}\n• Новых строк: ${r.total_rows_added || 0}\n• Поставщиков затронуто: ${(r.supplier_changes || []).length}\n\nЦены поставщиков не изменены. Откройте Google Drive, чтобы проверить.`);
+          alert(`Матрицы поставщиков приведены к мастеру:\n\n• Вкладок добавлено: ${added_s}\n• Вкладок удалено: ${deleted_s}\n• Строк добавлено: ${added_r}\n• Строк удалено: ${deleted_r}\n• Поставщиков затронуто: ${n_sup}\n\nЦены в оставшихся позициях сохранены.`);
         }, 1500);
       } else if (st.status === 'error') {
         clearInterval(poll);
