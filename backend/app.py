@@ -624,6 +624,7 @@ def _do_master_sync(dry_run: bool = False, prune: bool = True):
     _master_sync_state["finished_at"] = None
     _master_sync_state["result"] = None
     _master_sync_state["error"] = None
+    _master_sync_state["db_refresh"] = None
     try:
         # Импортируем здесь чтобы избежать конфликта при тестах
         etl_path = str(Path(__file__).parent.parent / "etl")
@@ -633,6 +634,30 @@ def _do_master_sync(dry_run: bool = False, prune: bool = True):
         result = do_sync(dry_run=dry_run, prune=prune)
         _master_sync_state["result"] = result
         _master_sync_state["status"] = "ok"
+
+        # После реального prune-sync — автоматически обновляем БД (drive_sync + importer),
+        # чтобы Топ-2 и анализ сразу показывали свежие цены.
+        if not dry_run:
+            try:
+                root = Path(__file__).parent.parent
+                _master_sync_state["db_refresh"] = {"status": "running"}
+                r1 = subprocess.run(
+                    [sys.executable, "-m", "etl.sync_from_drive"],
+                    cwd=str(root), capture_output=True, text=True, timeout=600,
+                )
+                r2 = subprocess.run(
+                    [sys.executable, "-m", "backend.importer"],
+                    cwd=str(root), capture_output=True, text=True, timeout=600,
+                )
+                _master_sync_state["db_refresh"] = {
+                    "status": "ok" if r1.returncode == 0 and r2.returncode == 0 else "error",
+                    "drive_sync_rc": r1.returncode,
+                    "importer_rc": r2.returncode,
+                    "drive_sync_err": r1.stderr[-300:] if r1.returncode else "",
+                    "importer_err": r2.stderr[-300:] if r2.returncode else "",
+                }
+            except Exception as e2:
+                _master_sync_state["db_refresh"] = {"status": "error", "error": str(e2)}
     except Exception as e:
         import traceback
         _master_sync_state["status"] = "error"

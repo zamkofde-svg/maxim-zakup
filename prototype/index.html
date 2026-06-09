@@ -2206,6 +2206,13 @@
       progress.style.width = Math.min(85, 5 + elapsed * 5) + '%';
 
       if (st.status === 'ok') {
+        // Матрицы готовы — но БД ещё может догружаться
+        const refresh = st.db_refresh || {};
+        if (refresh.status === 'running' || refresh.status === undefined) {
+          stepEl.textContent = 'Матрицы готовы. Обновляю Топ-2 и анализ…';
+          progress.style.width = '92%';
+          return; // ждём следующий тик
+        }
         clearInterval(poll);
         progress.style.width = '100%';
         const r = st.result || {};
@@ -2214,11 +2221,13 @@
         const added_r = r.total_rows_added || 0;
         const deleted_r = r.total_rows_deleted || 0;
         const n_sup = (r.supplier_changes || []).length;
+        const db_ok = refresh.status === 'ok';
+        const db_note = db_ok ? '\n• Топ-2 и анализ обновлены.' : '\n• ⚠ Не удалось обновить Топ-2 автоматически (нажмите «Синхронизировать» отдельно).';
         stepEl.textContent = `Готово ✓ вкладок +${added_s}/-${deleted_s}, строк +${added_r}/-${deleted_r}, поставщиков: ${n_sup}`;
         setTimeout(() => {
           overlay.classList.add('hidden');
           overlay.classList.remove('flex');
-          alert(`Матрицы поставщиков приведены к мастеру:\n\n• Вкладок добавлено: ${added_s}\n• Вкладок удалено: ${deleted_s}\n• Строк добавлено: ${added_r}\n• Строк удалено: ${deleted_r}\n• Поставщиков затронуто: ${n_sup}\n\nЦены в оставшихся позициях сохранены.`);
+          alert(`Матрицы поставщиков приведены к мастеру:\n\n• Вкладок добавлено: ${added_s}\n• Вкладок удалено: ${deleted_s}\n• Строк добавлено: ${added_r}\n• Строк удалено: ${deleted_r}\n• Поставщиков затронуто: ${n_sup}\n\nЦены в оставшихся позициях сохранены.${db_note}`);
         }, 1500);
       } else if (st.status === 'error') {
         clearInterval(poll);

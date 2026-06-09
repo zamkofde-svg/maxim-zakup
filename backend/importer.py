@@ -341,7 +341,25 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
             snapshot_saved += 1
             inserted += 1
 
-    return {"inserted": inserted, "updated": updated, "history_changes": history, "snapshots": snapshot_saved, "unmatched": unmatched}
+    # === УДАЛЕНИЕ ИСЧЕЗНУВШИХ ЦЕН ===
+    # Если в БД есть PriceQuote по (sup, pm), а в текущей матрице его уже нет
+    # (поставщик стёр цену из ячейки или мы удалили позицию при prune) —
+    # удаляем эту цену из БД. PriceHistory не трогаем (это исторический архив).
+    db.flush()
+    seen_pm_ids = {pm_id for _, pm_id in seen_pairs}
+    stale = db.execute(
+        select(PriceQuote).where(PriceQuote.supplier_id == sup.id)
+    ).scalars().all()
+    removed = 0
+    for old in stale:
+        if old.product_master_id not in seen_pm_ids:
+            db.delete(old)
+            removed += 1
+
+    return {
+        "inserted": inserted, "updated": updated, "history_changes": history,
+        "snapshots": snapshot_saved, "unmatched": unmatched, "removed_stale": removed,
+    }
 
 
 def import_facts(db: Session) -> dict:
@@ -595,9 +613,26 @@ def main():
 
     matrices = discover_supplier_matrices(DRIVE_DIR)
     print(f"→ найдено матриц поставщиков: {len(matrices)}")
+    seen_supplier_norms: set[str] = set()
     for sup_name, path in matrices:
+        seen_supplier_norms.add(normalize(sup_name))
         r = import_supplier_matrix(db, path, sup_name)
         print(f"→ matrix {sup_name}: {r}")
+
+    # === ЧИСТКА ФАНТОМНЫХ ПОСТАВЩИКОВ ===
+    # Поставщик в БД для которого больше нет xlsx-файла → фантом (файл удалён/переименован).
+    # Сносим вместе с его quotes и changes. PriceHistory оставляем как исторический архив.
+    from backend.models import PriceQuote as _PQ, PriceChange as _PC
+    phantoms = [
+        s for s in db.execute(select(Supplier)).scalars().all()
+        if s.name_normalized not in seen_supplier_norms
+    ]
+    if phantoms:
+        for ph in phantoms:
+            db.execute(delete(_PQ).where(_PQ.supplier_id == ph.id))
+            db.execute(delete(_PC).where(_PC.supplier_id == ph.id))
+            db.delete(ph)
+        print(f"→ удалено фантомных поставщиков: {len(phantoms)} ({[p.name for p in phantoms]})")
 
     print("→ facts:")
     r = import_facts(db)

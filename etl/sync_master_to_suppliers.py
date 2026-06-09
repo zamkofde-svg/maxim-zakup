@@ -193,6 +193,7 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
         smeta = sheets.spreadsheets().get(spreadsheetId=sup_id, fields="sheets.properties").execute()
         sup_titles = [s["properties"]["title"] for s in smeta["sheets"]]
         sup_sheet_id_by_title = {s["properties"]["title"]: s["properties"]["sheetId"] for s in smeta["sheets"]}
+        sup_hidden_by_title = {s["properties"]["title"]: s["properties"].get("hidden", False) for s in smeta["sheets"]}
 
         # сопоставляем вкладки поставщика с мастерскими по key
         sup_title_by_key = {_title_key(t): t for t in sup_titles}
@@ -200,6 +201,7 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
         sheets_added: list[str] = []
         sheets_deleted: list[str] = []
         sheets_renamed: list[tuple[str, str]] = []
+        sheets_unhidden: list[str] = []
         rows_added: dict[str, list[str]] = {}
         rows_deleted: dict[str, list[str]] = {}
 
@@ -244,7 +246,19 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
                         "fields": "title",
                     }})
                     sheets_renamed.append((canonical, mt))
-            all_requests = del_requests + rename_requests
+            # Раскрываем все whitelisted вкладки, если они скрыты — чтобы заказчик их видел
+            unhide_requests = []
+            for mt in wl_master_titles:
+                # ищем по любому имени (могло быть переименовано выше — но обновили sup_sheet_id_by_title только после execute)
+                # на этом этапе ещё не выполнили rename, поэтому используем старое имя
+                for st_name in list(sup_sheet_id_by_title.keys()):
+                    if _title_key(st_name) == _title_key(mt) and sup_hidden_by_title.get(st_name):
+                        unhide_requests.append({"updateSheetProperties": {
+                            "properties": {"sheetId": sup_sheet_id_by_title[st_name], "hidden": False},
+                            "fields": "hidden",
+                        }})
+                        sheets_unhidden.append(st_name)
+            all_requests = del_requests + rename_requests + unhide_requests
             if all_requests and not dry_run:
                 sheets.spreadsheets().batchUpdate(spreadsheetId=sup_id, body={"requests": all_requests}).execute()
             # обновим локальные структуры под переименование
@@ -338,12 +352,13 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
                         sheets.spreadsheets().batchUpdate(spreadsheetId=sup_id, body={"requests": del_req}).execute()
                     rows_deleted[mt] = [orig for _, orig in extra]
 
-        if sheets_added or sheets_deleted or sheets_renamed or rows_added or rows_deleted:
+        if sheets_added or sheets_deleted or sheets_renamed or sheets_unhidden or rows_added or rows_deleted:
             plan["supplier_changes"].append({
                 "supplier": sup_name,
                 "sheets_added": sheets_added,
                 "sheets_deleted": sheets_deleted,
                 "sheets_renamed": sheets_renamed,
+                "sheets_unhidden": sheets_unhidden,
                 "rows_added": rows_added,
                 "rows_added_count": sum(len(v) for v in rows_added.values()),
                 "rows_deleted": rows_deleted,

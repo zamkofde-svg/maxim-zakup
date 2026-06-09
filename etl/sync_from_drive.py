@@ -35,8 +35,16 @@ def _load_credentials():
 
 
 def safe_filename(name: str) -> str:
-    """Приводит имя файла к safe-варианту для файловой системы."""
-    return "".join(c if c.isalnum() or c in " -_.()" else "_" for c in name).strip()
+    """Приводит имя файла к safe-варианту для файловой системы.
+    Сохраняем кавычки, скобки, кириллицу — Linux/macOS их терпят. Заменяем только
+    реально опасные символы (слэш, обратный слэш, нулевой байт)."""
+    out = []
+    for c in name:
+        if c in ("/", "\\", "\x00", "\n", "\r", "\t"):
+            out.append("_")
+        else:
+            out.append(c)
+    return "".join(out).strip()
 
 
 def get_service():
@@ -76,6 +84,8 @@ FACTS_OUT_DIR = OUT_DIR / "facts"
 def sync():
     """Скачивает все файлы из Drive (матрицы + мастер + карту) → OUT_DIR.
     Отдельно скачивает выгрузки факта из подпапки «Факты iiko-SH» → OUT_DIR/facts.
+    После скачивания УДАЛЯЕТ из OUT_DIR файлы, которых больше нет в Drive
+    (страховка от фантомов после переименования / удаления файла поставщика).
     Возвращает счётчик."""
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     FACTS_OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -103,6 +113,10 @@ def sync():
     files_main = 0
     files_facts = 0
 
+    # Будем собирать имена, чтобы потом удалить «лишние» файлы из OUT_DIR
+    expected_main: set[str] = set()
+    expected_facts: set[str] = set()
+
     for f in all_items:
         if f["mimeType"] == "application/vnd.google-apps.folder":
             continue
@@ -123,50 +137,54 @@ def sync():
         if is_in_facts:
             out_path = FACTS_OUT_DIR / out_name
             files_facts += 1
+            expected_facts.add(out_name)
         else:
             out_path = OUT_DIR / out_name
             files_main += 1
+            expected_main.add(out_name)
 
         total_bytes += download_file(svc, f["id"], f["name"], f["mimeType"], out_path)
+
+    # === ПОЧИСТИМ ЛИШНЕЕ ===
+    removed = 0
+    for p in OUT_DIR.iterdir():
+        if p.is_dir():
+            continue
+        if not (p.name.endswith(".xlsx") or p.name.endswith(".xls")):
+            continue
+        if p.name not in expected_main:
+            try:
+                p.unlink()
+                removed += 1
+            except OSError:
+                pass
+    for p in FACTS_OUT_DIR.iterdir():
+        if p.is_dir():
+            continue
+        if not (p.name.endswith(".xlsx") or p.name.endswith(".xls")):
+            continue
+        if p.name not in expected_facts:
+            try:
+                p.unlink()
+                removed += 1
+            except OSError:
+                pass
 
     return {
         "files_main": files_main,
         "files_facts": files_facts,
         "bytes": total_bytes,
         "facts_folder_found": bool(facts_folder),
+        "removed_stale_files": removed,
     }
 
 
 def main():
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    svc = get_service()
-
-    # Перечисляем всё что видим
-    resp = svc.files().list(
-        pageSize=200,
-        fields="files(id, name, mimeType, modifiedTime)",
-        corpora="allDrives",
-        includeItemsFromAllDrives=True,
-        supportsAllDrives=True,
-        q="mimeType != 'application/vnd.google-apps.folder'",
-    ).execute()
-    files = resp.get("files", [])
-
-    print(f"Найдено файлов: {len(files)}")
-    print(f"Папка выгрузки: {OUT_DIR}\n")
-
-    total_bytes = 0
-    for f in files:
-        out_name = safe_filename(f["name"])
-        if not out_name.endswith(".xlsx"):
-            out_name += ".xlsx"
-        out_path = OUT_DIR / out_name
-
-        size = download_file(svc, f["id"], f["name"], f["mimeType"], out_path)
-        total_bytes += size
-        print(f"  ✓ {out_name:<45} {size:>8} bytes  modified={f.get('modifiedTime', '?')[:10]}")
-
-    print(f"\nИтого: {len(files)} файлов, {total_bytes:,} байт")
+    """CLI-обёртка над sync(): синхронизирует с Drive и чистит лишнее."""
+    print(f"Папка выгрузки: {OUT_DIR}")
+    result = sync()
+    print(f"\nИтого: главных файлов {result['files_main']}, фактов {result['files_facts']}, "
+          f"байт {result['bytes']:,}, удалено устаревших {result['removed_stale_files']}")
 
 
 if __name__ == "__main__":
