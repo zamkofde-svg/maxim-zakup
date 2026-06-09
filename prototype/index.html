@@ -2140,10 +2140,10 @@
           </div>
         </div>
         <div class="bg-slate-50 rounded-lg p-3 text-sm text-slate-700 space-y-1.5 mb-4">
-          <div>• Создадутся недостающие вкладки и позиции из мастера</div>
+          <div>• У каждого поставщика будут все вкладки и позиции из мастер-матрицы</div>
           <div>• <span class="text-red-600 font-medium">Удалятся позиции</span>, которых нет в мастере</div>
-          <div>• <span class="text-red-600 font-medium">Удалятся вкладки</span>, не предусмотренные для поставщика</div>
           <div>• Цены в оставшихся позициях <span class="font-medium">сохранятся</span></div>
+          <div>• Новые поставщики из Drive будут подхвачены автоматически</div>
         </div>
         <div class="mb-4">
           <label class="text-xs text-slate-600">Для подтверждения введите слово <span class="font-mono font-semibold">ПРИВЕСТИ</span>:</label>
@@ -2223,11 +2223,15 @@
         const n_sup = (r.supplier_changes || []).length;
         const db_ok = refresh.status === 'ok';
         const db_note = db_ok ? '\n• Топ-2 и анализ обновлены.' : '\n• ⚠ Не удалось обновить Топ-2 автоматически (нажмите «Синхронизировать» отдельно).';
+        const new_sups = r.new_suppliers || [];
+        const new_note = new_sups.length
+          ? `\n\n🆕 Обнаружены новые поставщики (${new_sups.length}):\n  • ${new_sups.join('\n  • ')}\nИм созданы все вкладки из мастер-матрицы.`
+          : '';
         stepEl.textContent = `Готово ✓ вкладок +${added_s}/-${deleted_s}, строк +${added_r}/-${deleted_r}, поставщиков: ${n_sup}`;
         setTimeout(() => {
           overlay.classList.add('hidden');
           overlay.classList.remove('flex');
-          alert(`Матрицы поставщиков приведены к мастеру:\n\n• Вкладок добавлено: ${added_s}\n• Вкладок удалено: ${deleted_s}\n• Строк добавлено: ${added_r}\n• Строк удалено: ${deleted_r}\n• Поставщиков затронуто: ${n_sup}\n\nЦены в оставшихся позициях сохранены.${db_note}`);
+          alert(`Матрицы поставщиков приведены к мастеру:\n\n• Вкладок добавлено: ${added_s}\n• Вкладок удалено: ${deleted_s}\n• Строк добавлено: ${added_r}\n• Строк удалено: ${deleted_r}\n• Поставщиков затронуто: ${n_sup}\n\nЦены в оставшихся позициях сохранены.${db_note}${new_note}`);
         }, 1500);
       } else if (st.status === 'error') {
         clearInterval(poll);

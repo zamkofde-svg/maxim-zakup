@@ -21,10 +21,33 @@
 from __future__ import annotations
 import json
 import os
+import random
 import re
+import time
 from pathlib import Path
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+
+def _execute_with_retry(request, *, max_attempts: int = 7, label: str = ""):
+    """Выполняет request.execute() с ретраем на 429/500/503 с экспоненциальным backoff.
+    Защита от 'Write requests per minute per user' = 60 у Google Sheets."""
+    last_err = None
+    for attempt in range(max_attempts):
+        try:
+            return request.execute()
+        except HttpError as e:
+            status = getattr(e.resp, "status", 0)
+            if status in (429, 500, 502, 503, 504):
+                # ждём 2^attempt секунд + джиттер (до 1 сек)
+                delay = (2 ** attempt) + random.random()
+                last_err = e
+                print(f"[retry] {label or 'request'}: HTTP {status}, ждём {delay:.1f}с (попытка {attempt + 1}/{max_attempts})", flush=True)
+                time.sleep(delay)
+                continue
+            raise
+    raise last_err if last_err else RuntimeError("retry exhausted without error")
 
 SA_PATH = Path.home() / ".config" / "maxim-zakup" / "sa.json"
 SCOPES = [
@@ -41,25 +64,12 @@ SUPPLIER_PREFIXES = ("ООО ", "АО ", "ИП ", "ПАО ", "ЗАО ")
 
 
 # ========== WHITELIST ВКЛАДОК ПО ПОСТАВЩИКАМ ==========
-# Какие вкладки оставлять у каждого поставщика. Имена сравниваются по нормализации _title_key
-# (нижний регистр, без пробелов и '/'), чтобы "Мука/смеси" и "Мукасмеси" считались одним.
-# Если поставщика нет в этой карте — берётся ALL_MASTER (т.е. все вкладки мастера разрешены).
-SUPPLIER_SHEET_WHITELIST: dict[str, list[str]] = {
-    'АО Группа "ЮФС"':              ["Рыба и морепродукты", "Ягода см", "Мясо"],
-    "ИП Трусов Дмитрий Сергеевич":  ["Мясо"],
-    "ООО Восток-запад":             ["Молочка", "Мясо", "Рыба и морепродукты", "Сыры",
-                                     "Ягода см", "Бакалея", "Консервация", "Мука/смеси",
-                                     "макароны", "Шоколад"],
-    "ООО Метро Кэш энд Керри":      ["Молочка", "Мясо", "Рыба и морепродукты", "Сыры",
-                                     "Ягода см", "Бакалея", "Консервация", "Мука/смеси",
-                                     "макароны"],
-    "ООО ЕвроСиб-Трейд":            ["Молочка", "Сыры"],
-    "ООО Мираторг ТК":              ["Мясо"],
-    "ООО Орбита и К":               ["Молочка", "Сыры", "Бакалея", "Консервация",
-                                     "Мука/смеси", "макароны"],
-    "ООО Тюменьмолоко":             ["Молочка", "Сыры"],
-    "ООО УРАЛ ФУД":                 ["Молочка", "Сыры"],
-}
+# По умолчанию ВСЕ поставщики получают ВСЕ вкладки мастер-матрицы. Заказчик решил
+# держать единый шаблон. Если в будущем понадобится ограничить какого-то поставщика —
+# допишите его сюда: {имя: [список разрешённых вкладок мастера]}.
+# Имена вкладок сравниваются по нормализации _title_key (без пробелов, '/' и регистра),
+# чтобы "Мука/смеси" и "Мукасмеси" считались одной вкладкой.
+SUPPLIER_SHEET_WHITELIST: dict[str, list[str]] = {}
 
 
 def _load_credentials():
@@ -93,14 +103,14 @@ def _get_services():
 
 def _list_files(drive) -> list[dict]:
     """Все файлы, видимые service account."""
-    resp = drive.files().list(
+    resp = _execute_with_retry(drive.files().list(
         pageSize=200,
         fields="files(id, name, mimeType)",
         corpora="allDrives",
         includeItemsFromAllDrives=True,
         supportsAllDrives=True,
         q="mimeType != 'application/vnd.google-apps.folder'",
-    ).execute()
+    ), label="drive.files.list")
     return resp.get("files", [])
 
 
@@ -116,9 +126,9 @@ def _read_sheets(sheets, spreadsheet_id: str, sheet_titles: list[str]) -> dict[s
     if not sheet_titles:
         return {}
     ranges = [f"'{t}'!A1:A2000" for t in sheet_titles]
-    resp = sheets.spreadsheets().values().batchGet(
+    resp = _execute_with_retry(sheets.spreadsheets().values().batchGet(
         spreadsheetId=spreadsheet_id, ranges=ranges
-    ).execute()
+    ), label="sheets.values.batchGet")
     result = {}
     for vr in resp.get("valueRanges", []):
         range_str = vr.get("range", "")
@@ -144,11 +154,32 @@ def _read_sheets(sheets, spreadsheet_id: str, sheet_titles: list[str]) -> dict[s
 
 def _read_master(sheets, master_id: str) -> tuple[dict[str, list[tuple[int, str, str]]], dict[str, int]]:
     """Возвращает (rows_by_title, sheet_id_by_title)."""
-    meta = sheets.spreadsheets().get(spreadsheetId=master_id, fields="sheets.properties").execute()
+    meta = _execute_with_retry(sheets.spreadsheets().get(spreadsheetId=master_id, fields="sheets.properties"), label="sheets.get(master)")
     titles = [s["properties"]["title"] for s in meta["sheets"]]
     sheet_id_by_title = {s["properties"]["title"]: s["properties"]["sheetId"] for s in meta["sheets"]}
     rows = _read_sheets(sheets, master_id, titles)
     return rows, sheet_id_by_title
+
+
+def _known_supplier_norms() -> set[str]:
+    """Возвращает нормализованные имена поставщиков, которые уже есть в БД.
+    Используется чтобы пометить новых поставщиков в результате sync()."""
+    try:
+        import sys as _sys
+        backend_path = str(Path(__file__).resolve().parent.parent)
+        if backend_path not in _sys.path:
+            _sys.path.insert(0, backend_path)
+        from backend.db import SessionLocal  # type: ignore
+        from backend.models import Supplier  # type: ignore
+        from backend.importer import normalize as _norm_name  # type: ignore
+        from sqlalchemy import select
+        db = SessionLocal()
+        try:
+            return {s.name_normalized for s in db.execute(select(Supplier)).scalars().all()}
+        finally:
+            db.close()
+    except Exception:
+        return set()
 
 
 def sync(dry_run: bool = False, prune: bool = False) -> dict:
@@ -169,6 +200,7 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
 
     plan = {
         "supplier_changes": [],
+        "new_suppliers": [],     # имена поставщиков, появившихся в Drive впервые
         "dry_run": dry_run,
         "prune": prune,
         "total_sheets_added": 0,
@@ -177,8 +209,23 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
         "total_rows_deleted": 0,
     }
 
+    # Множество поставщиков, которые уже были известны системе. Всё что не в нём —
+    # новый поставщик (заказчику покажем в финальном алерте).
+    known_norms = _known_supplier_norms()
+
     supplier_files = [f for f in files if _is_supplier_file(f["name"])
                       and f["mimeType"] == "application/vnd.google-apps.spreadsheet"]
+
+    # Сразу заполняем список новых поставщиков
+    try:
+        from backend.importer import normalize as _norm_name  # type: ignore
+    except Exception:
+        # fallback на простую нормализацию если бэкенда нет
+        def _norm_name(s):
+            return (s or "").lower().strip().replace('"', "").replace("«", "").replace("»", "")
+    for f in supplier_files:
+        if _norm_name(f["name"]) not in known_norms:
+            plan["new_suppliers"].append(f["name"])
 
     for sup in supplier_files:
         sup_id = sup["id"]
@@ -190,7 +237,7 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
         wl_master_titles = {master_key_to_title[k] for k in wl_keys if k in master_key_to_title}
 
         # вкладки поставщика
-        smeta = sheets.spreadsheets().get(spreadsheetId=sup_id, fields="sheets.properties").execute()
+        smeta = _execute_with_retry(sheets.spreadsheets().get(spreadsheetId=sup_id, fields="sheets.properties"), label=f"sheets.get({sup_name})")
         sup_titles = [s["properties"]["title"] for s in smeta["sheets"]]
         sup_sheet_id_by_title = {s["properties"]["title"]: s["properties"]["sheetId"] for s in smeta["sheets"]}
         sup_hidden_by_title = {s["properties"]["title"]: s["properties"].get("hidden", False) for s in smeta["sheets"]}
@@ -260,7 +307,10 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
                         sheets_unhidden.append(st_name)
             all_requests = del_requests + rename_requests + unhide_requests
             if all_requests and not dry_run:
-                sheets.spreadsheets().batchUpdate(spreadsheetId=sup_id, body={"requests": all_requests}).execute()
+                _execute_with_retry(
+                    sheets.spreadsheets().batchUpdate(spreadsheetId=sup_id, body={"requests": all_requests}),
+                    label=f"batchUpdate(del/rename/unhide@{sup_name})",
+                )
             # обновим локальные структуры под переименование
             for old, new in sheets_renamed:
                 if old in sup_sheet_id_by_title:
@@ -279,18 +329,24 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
                 continue  # уже есть
             # создаём вкладку с тем же именем, что в мастере, и заливаем шапку + позиции
             if not dry_run:
-                resp_add = sheets.spreadsheets().batchUpdate(
-                    spreadsheetId=sup_id,
-                    body={"requests": [{"addSheet": {"properties": {"title": mt}}}]},
-                ).execute()
+                resp_add = _execute_with_retry(
+                    sheets.spreadsheets().batchUpdate(
+                        spreadsheetId=sup_id,
+                        body={"requests": [{"addSheet": {"properties": {"title": mt}}}]},
+                    ),
+                    label=f"addSheet({mt}@{sup_name})",
+                )
                 new_sheet_id = resp_add["replies"][0]["addSheet"]["properties"]["sheetId"]
                 values_to_write = [["Наименование"]] + [[o] for o in master_orig_in_order[mt]]
-                sheets.spreadsheets().values().update(
-                    spreadsheetId=sup_id,
-                    range=f"'{mt}'!A1",
-                    valueInputOption="USER_ENTERED",
-                    body={"values": values_to_write},
-                ).execute()
+                _execute_with_retry(
+                    sheets.spreadsheets().values().update(
+                        spreadsheetId=sup_id,
+                        range=f"'{mt}'!A1",
+                        valueInputOption="USER_ENTERED",
+                        body={"values": values_to_write},
+                    ),
+                    label=f"values.update({mt}@{sup_name})",
+                )
                 sup_sheet_id_by_title[mt] = new_sheet_id
                 sup_titles.append(mt)
             sheets_added.append(mt)
@@ -328,13 +384,16 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
                 missing.append(orig)
             if missing:
                 if not dry_run:
-                    sheets.spreadsheets().values().append(
-                        spreadsheetId=sup_id,
-                        range=f"'{sup_t}'!A:A",
-                        valueInputOption="USER_ENTERED",
-                        insertDataOption="INSERT_ROWS",
-                        body={"values": [[m] for m in missing]},
-                    ).execute()
+                    _execute_with_retry(
+                        sheets.spreadsheets().values().append(
+                            spreadsheetId=sup_id,
+                            range=f"'{sup_t}'!A:A",
+                            valueInputOption="USER_ENTERED",
+                            insertDataOption="INSERT_ROWS",
+                            body={"values": [[m] for m in missing]},
+                        ),
+                        label=f"values.append({mt}@{sup_name})",
+                    )
                 rows_added[mt] = missing
 
             # 4b) удаление лишнего (только prune): строки поставщика чей norm не в master_set
@@ -349,7 +408,10 @@ def sync(dry_run: bool = False, prune: bool = False) -> dict:
                                 "sheetId": sid, "dimension": "ROWS",
                                 "startIndex": rn - 1, "endIndex": rn,
                             }}})
-                        sheets.spreadsheets().batchUpdate(spreadsheetId=sup_id, body={"requests": del_req}).execute()
+                        _execute_with_retry(
+                            sheets.spreadsheets().batchUpdate(spreadsheetId=sup_id, body={"requests": del_req}),
+                            label=f"batchUpdate(deleteRows@{sup_name})",
+                        )
                     rows_deleted[mt] = [orig for _, orig in extra]
 
         if sheets_added or sheets_deleted or sheets_renamed or sheets_unhidden or rows_added or rows_deleted:
