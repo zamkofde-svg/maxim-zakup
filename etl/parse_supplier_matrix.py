@@ -59,6 +59,49 @@ class PriceQuote:
     row: int            # номер строки в файле — для дебага
 
 
+def _detect_price_column(ws) -> int | None:
+    """Авто-детект колонки с ценами.
+
+    Поставщики используют разные шаблоны матрицы:
+      - старые: B=упаковка, C=стоимость, D=нетто, E=цена за кг/упак
+      - новые упрощённые: B='КГ'/'ШТ' (единица), C=цена
+      - молочка/бакалея у некоторых: цена прямо в B
+
+    Идея: проходим колонки B..F и считаем сколько в них числовых значений > 0
+    напротив заполненной колонки A. Победителем будет колонка с максимумом.
+    Если ничьей, предпочтение по приоритету E → C → B → D → F (E — самый частый
+    «исторический» формат, C — типовой для новых матриц).
+    """
+    counts = {c: 0 for c in range(2, 7)}  # B..F
+    for r in range(2, ws.max_row + 1):
+        a = ws.cell(r, 1).value
+        if not a:
+            continue
+        s = str(a).strip()
+        if not s or s.startswith("Наименование"):
+            continue
+        for c in range(2, 7):
+            v = ws.cell(r, c).value
+            if v in (None, ""):
+                continue
+            # пробуем как число
+            try:
+                fv = float(str(v).replace(" ", "").replace(",", "."))
+            except (TypeError, ValueError):
+                continue
+            if fv > 0:
+                counts[c] += 1
+    if max(counts.values(), default=0) == 0:
+        return None
+    # tie-break по приоритету
+    priority = [5, 3, 2, 4, 6]  # E, C, B, D, F
+    best = max(counts.values())
+    for c in priority:
+        if counts[c] == best:
+            return c
+    return None
+
+
 def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
     wb = load_workbook(path, data_only=True)  # читаем вычисленные значения формул
     quotes: list[PriceQuote] = []
@@ -69,19 +112,26 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
         category = sheet_name.strip()
         unit_type = "kg_or_l" if category in UNIT_PRICE_CATEGORIES else "pkg"
 
+        price_col = _detect_price_column(ws)
+        if price_col is None:
+            continue  # пустая вкладка — нечего парсить
+
         for row in range(2, ws.max_row + 1):
             product_raw = ws.cell(row, 1).value
             product = _norm_str(product_raw)
             if not product:
                 continue
+            if product.startswith("Наименование"):
+                continue
 
-            price = _to_float(ws.cell(row, 5).value)
-            if price is None:
+            price = _to_float(ws.cell(row, price_col).value)
+            if price is None or price <= 0:
                 # нет цены — поставщик не предлагает эту позицию
                 continue
 
-            pkg_gross = _to_float(ws.cell(row, 2).value)
-            pkg_net = _to_float(ws.cell(row, 4).value)
+            # pkg_net/pkg_gross — берём только если они в "родных" колонках (не равны price_col)
+            pkg_gross = _to_float(ws.cell(row, 2).value) if price_col != 2 else None
+            pkg_net = _to_float(ws.cell(row, 4).value) if price_col != 4 else None
 
             quotes.append(PriceQuote(
                 supplier=supplier_name,
