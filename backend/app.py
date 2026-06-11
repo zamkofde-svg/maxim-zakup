@@ -276,8 +276,9 @@ def get_top2(
             "suppliers_count": len(item["quotes"]),
         })
 
-    # Сортируем: сначала те у кого есть конкуренция (есть top2), потом одиночные
-    result.sort(key=lambda x: (x["top2"] is None, x["category"], x["product"]))
+    # Сортировка: сначала позиции с конкуренцией (есть top2), потом одиночные.
+    # Внутри каждой группы — по алфавиту наименования (без учёта регистра).
+    result.sort(key=lambda x: (x["top2"] is None, x["product"].casefold(), x["category"]))
     return result[:limit]
 
 

@@ -17,7 +17,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from openpyxl import load_workbook
 
-# Категории, где E — это цена за кг/литр; везде — за упаковку
+# Старый хардкод оставлен как fallback на случай если в шапке нет слова "Цена".
+# В норме unit_type определяется по тексту самого заголовка колонки.
 UNIT_PRICE_CATEGORIES = {"Сыры", "Молочка"}
 
 
@@ -59,20 +60,44 @@ class PriceQuote:
     row: int            # номер строки в файле — для дебага
 
 
-def _detect_price_column(ws) -> int | None:
-    """Авто-детект колонки с ценами.
-
-    Поставщики используют разные шаблоны матрицы:
-      - старые: B=упаковка, C=стоимость, D=нетто, E=цена за кг/упак
-      - новые упрощённые: B='КГ'/'ШТ' (единица), C=цена
-      - молочка/бакалея у некоторых: цена прямо в B
-
-    Идея: проходим колонки B..F и считаем сколько в них числовых значений > 0
-    напротив заполненной колонки A. Победителем будет колонка с максимумом.
-    Если ничьей, предпочтение по приоритету E → C → B → D → F (E — самый частый
-    «исторический» формат, C — типовой для новых матриц).
+def _header_keyword_score(title: str) -> int:
+    """Чем больше score, тем уверенней эта колонка содержит цены.
+    0 = «Цена» в заголовке нет вовсе.
     """
-    counts = {c: 0 for c in range(2, 7)}  # B..F
+    if not title:
+        return 0
+    t = str(title).lower()
+    if "цена" not in t and "стоимост" not in t and "price" not in t and "₽" not in t and "руб" not in t:
+        return 0
+    # «Цена кг/литр» / «Цена за кг» — самая правильная финальная цена за единицу
+    if "кг" in t or "литр" in t or "/л" in t or "за кг" in t:
+        return 30
+    # «Цена упаковка» / «Цена (упаковка)»
+    if "упак" in t:
+        return 20
+    # просто «Цена» / «Стоимость» / «Price» / «₽»
+    return 10
+
+
+def _detect_price_column_by_header(ws) -> tuple[int | None, str]:
+    """Возвращает (номер колонки 1-based, текст заголовка) на основании ШАПКИ.
+    Если в шапке нет ни одной колонки со словом «Цена/Стоимость» — возвращает (None, '').
+    """
+    best_col, best_score, best_title = None, 0, ""
+    for c in range(2, 8):  # B..G
+        title = ws.cell(1, c).value
+        score = _header_keyword_score(title)
+        if score > best_score:
+            best_col, best_score, best_title = c, score, str(title or "")
+    return best_col, best_title
+
+
+def _detect_price_column_heuristic(ws) -> int | None:
+    """Fallback: если в шапке нет «Цена» (упрощённые матрицы вроде Овощифруктов
+    у Пашаяна), берём колонку B..F с максимальным числом положительных значений.
+    Это даёт хоть какие-то цены для тех редких вкладок, у которых нет шапки.
+    """
+    counts = {c: 0 for c in range(2, 7)}
     for r in range(2, ws.max_row + 1):
         a = ws.cell(r, 1).value
         if not a:
@@ -84,7 +109,6 @@ def _detect_price_column(ws) -> int | None:
             v = ws.cell(r, c).value
             if v in (None, ""):
                 continue
-            # пробуем как число
             try:
                 fv = float(str(v).replace(" ", "").replace(",", "."))
             except (TypeError, ValueError):
@@ -93,8 +117,8 @@ def _detect_price_column(ws) -> int | None:
                 counts[c] += 1
     if max(counts.values(), default=0) == 0:
         return None
-    # tie-break по приоритету
-    priority = [5, 3, 2, 4, 6]  # E, C, B, D, F
+    # Эвристика менее строгая: даём шанс C (типовой для упрощённых матриц), потом E
+    priority = [3, 5, 2, 4, 6]
     best = max(counts.values())
     for c in priority:
         if counts[c] == best:
@@ -108,13 +132,29 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        # Категория = имя вкладки, нормализуем регистр (некоторые поставщики могут писать с маленькой)
         category = sheet_name.strip()
-        unit_type = "kg_or_l" if category in UNIT_PRICE_CATEGORIES else "pkg"
 
-        price_col = _detect_price_column(ws)
-        if price_col is None:
-            continue  # пустая вкладка — нечего парсить
+        # 1) Основной путь — по шапке. Это надёжно: даже если поставщик понапихал
+        #    чисел в колонку "Упаковка брутто", мы возьмём цену из "Цена кг/литр".
+        price_col, price_header = _detect_price_column_by_header(ws)
+        unit_type: str
+        if price_col is not None:
+            # unit_type по тексту шапки
+            t = price_header.lower()
+            if "кг" in t or "литр" in t or "/л" in t:
+                unit_type = "kg_or_l"
+            elif "упак" in t:
+                unit_type = "pkg"
+            else:
+                # просто «Цена» — старый fallback по категории
+                unit_type = "kg_or_l" if category in UNIT_PRICE_CATEGORIES else "pkg"
+        else:
+            # 2) Fallback — упрощённые матрицы без шапки (типа Овощифрукты у Пашаяна:
+            #    A=Наименование, B=Ед.изм). Если шапки нет, угадываем по эвристике.
+            price_col = _detect_price_column_heuristic(ws)
+            if price_col is None:
+                continue  # реально пустая вкладка
+            unit_type = "kg_or_l" if category in UNIT_PRICE_CATEGORIES else "pkg"
 
         for row in range(2, ws.max_row + 1):
             product_raw = ws.cell(row, 1).value
@@ -126,10 +166,11 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
 
             price = _to_float(ws.cell(row, price_col).value)
             if price is None or price <= 0:
-                # нет цены — поставщик не предлагает эту позицию
+                # либо ячейка пуста, либо там текст вроде '91,54 / 87,77' — пропускаем.
+                # Это правильно: поставщик не предлагает или заполнил криво.
                 continue
 
-            # pkg_net/pkg_gross — берём только если они в "родных" колонках (не равны price_col)
+            # pkg_net/pkg_gross — берём только если их колонки не совпадают с ценой
             pkg_gross = _to_float(ws.cell(row, 2).value) if price_col != 2 else None
             pkg_net = _to_float(ws.cell(row, 4).value) if price_col != 4 else None
 
