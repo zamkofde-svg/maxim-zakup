@@ -81,6 +81,10 @@
         <i data-lucide="trophy" class="w-4 h-4 text-slate-500"></i>
         Рекомендации шефам
       </a>
+      <a href="#" data-page="summary" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <i data-lucide="table" class="w-4 h-4 text-slate-500"></i>
+        Сводная по поставщикам
+      </a>
       <a href="#" data-page="analysis" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
         <i data-lucide="search-check" class="w-4 h-4 text-slate-500"></i>
         Анализ закупок
@@ -635,6 +639,39 @@
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- ============ SUMMARY (Сводная по поставщикам) ============ -->
+    <div id="page-summary" class="page p-8">
+      <div class="bg-white rounded-xl border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 class="font-semibold text-slate-900">Сводная: цены по всем поставщикам</h3>
+            <p class="text-xs text-slate-500 mt-0.5" id="summary-subtitle">Загрузка…</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="relative">
+              <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-400"></i>
+              <input id="summary-search" type="text" placeholder="Поиск по наименованию…"
+                     class="border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <button onclick="exportSummaryCsv()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium">
+              <i data-lucide="download" class="w-4 h-4"></i>
+              CSV
+            </button>
+          </div>
+        </div>
+        <div id="summary-categories" class="px-6 py-3 border-b border-slate-100 flex flex-wrap gap-2">
+          <!-- категории как вкладки — рисуются JS -->
+        </div>
+        <div class="overflow-auto" style="max-height: calc(100vh - 240px);">
+          <table id="summary-table" class="text-xs border-collapse" style="border-spacing:0">
+            <thead class="bg-slate-50 text-slate-500 uppercase tracking-wider sticky top-0 z-10"></thead>
+            <tbody></tbody>
+          </table>
+          <div id="summary-empty" class="p-8 text-center text-sm text-slate-400 hidden">Нет данных в этой категории</div>
+        </div>
       </div>
     </div>
 
@@ -1297,6 +1334,7 @@
   const titles = {
     dashboard: ['Главная', 'Дашборд'],
     recommendations: ['Рекомендации', 'Топ-2 для шефов'],
+    summary: ['Сводная', 'Цены по всем поставщикам'],
     analysis: ['Анализ', 'Отклонения и переплаты'],
     prices: ['Динамика', 'История цен'],
     suppliers: ['Поставщики', 'Список и статус матриц'],
@@ -1320,6 +1358,10 @@
     if (page === 'ceo' && !document.getElementById('page-ceo').dataset.loaded) {
       document.getElementById('page-ceo').dataset.loaded = '1';
       hydrateCEOSummary();
+    }
+    if (page === 'summary' && !document.getElementById('page-summary').dataset.loaded) {
+      document.getElementById('page-summary').dataset.loaded = '1';
+      hydrateSummary();
     }
   }
 
@@ -2241,6 +2283,150 @@
     }, 1500);
   }
   window.runMasterSync = runMasterSync;
+
+  // ============ СВОДНАЯ ПО ПОСТАВЩИКАМ ============
+  let _summaryData = null;
+  let _summaryCategory = '';  // пусто = все
+  let _summaryQuery = '';
+
+  async function hydrateSummary() {
+    const sub = document.getElementById('summary-subtitle');
+    sub.textContent = 'Загрузка…';
+    const data = await tryFetch(`${API_BASE}/summary`);
+    if (!data) {
+      sub.textContent = 'Ошибка загрузки.';
+      return;
+    }
+    _summaryData = data;
+    renderSummaryCategories();
+    renderSummaryTable();
+    document.getElementById('summary-search').addEventListener('input', e => {
+      _summaryQuery = e.target.value.trim().toLowerCase();
+      renderSummaryTable();
+    });
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function renderSummaryCategories() {
+    const wrap = document.getElementById('summary-categories');
+    wrap.innerHTML = '';
+    const cats = ['все', ...(_summaryData?.categories || [])];
+    cats.forEach(label => {
+      const value = label === 'все' ? '' : label;
+      const btn = document.createElement('button');
+      const active = (value === _summaryCategory);
+      btn.className = 'px-3 py-1.5 rounded-full text-xs font-medium ' +
+        (active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
+      btn.textContent = label;
+      btn.addEventListener('click', () => {
+        _summaryCategory = value;
+        renderSummaryCategories();
+        renderSummaryTable();
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
+  function _filteredSummaryRows() {
+    if (!_summaryData) return [];
+    return _summaryData.rows.filter(r => {
+      if (_summaryCategory && r.category !== _summaryCategory) return false;
+      if (_summaryQuery && !r.product.toLowerCase().includes(_summaryQuery)) return false;
+      return true;
+    });
+  }
+
+  function _filteredSuppliers(rows) {
+    // показываем только тех поставщиков у кого есть хоть одна цена в текущей выборке
+    const present = new Set();
+    rows.forEach(r => Object.keys(r.prices).forEach(s => present.add(s)));
+    return (_summaryData?.suppliers || []).filter(s => present.has(s));
+  }
+
+  function renderSummaryTable() {
+    const rows = _filteredSummaryRows();
+    const suppliers = _filteredSuppliers(rows);
+    const sub = document.getElementById('summary-subtitle');
+    sub.textContent = `${rows.length} позиций · ${suppliers.length} поставщиков`;
+
+    const thead = document.querySelector('#summary-table thead');
+    const tbody = document.querySelector('#summary-table tbody');
+    const empty = document.getElementById('summary-empty');
+
+    if (!rows.length) {
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+
+    const fmt = v => v == null ? '' : (Number.isInteger(v) ? v.toString() : v.toFixed(2));
+
+    // header
+    let hh = '<tr>';
+    hh += '<th class="px-3 py-2 text-left sticky left-0 bg-slate-50 z-20 min-w-[280px] border-b border-r border-slate-200">Наименование</th>';
+    hh += '<th class="px-2 py-2 text-left bg-slate-50 border-b border-slate-200 min-w-[110px]">Группа</th>';
+    suppliers.forEach(s => {
+      hh += `<th class="px-2 py-2 text-right bg-slate-50 border-b border-slate-200 min-w-[100px] whitespace-nowrap" title="${s}">${s.length > 18 ? s.slice(0, 17) + '…' : s}</th>`;
+    });
+    hh += '</tr>';
+    thead.innerHTML = hh;
+
+    // body
+    const frag = document.createDocumentFragment();
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-50';
+      let html = '';
+      html += `<td class="px-3 py-2 sticky left-0 bg-white z-10 border-b border-r border-slate-100 min-w-[280px]">${r.product}</td>`;
+      html += `<td class="px-2 py-2 text-slate-500 border-b border-slate-100">${r.category}</td>`;
+      suppliers.forEach(s => {
+        const p = r.prices[s];
+        if (p == null) {
+          html += '<td class="px-2 py-2 text-right text-slate-300 border-b border-slate-100">—</td>';
+        } else {
+          const isMin = (p === r.min_price && r.suppliers_count > 1);
+          const isMax = (p === r.max_price && r.suppliers_count > 1);
+          const cls = isMin ? 'bg-emerald-50 text-emerald-700 font-semibold'
+                    : isMax ? 'text-rose-700'
+                    : 'text-slate-700';
+          html += `<td class="px-2 py-2 text-right border-b border-slate-100 ${cls}">${fmt(p)}</td>`;
+        }
+      });
+      tr.innerHTML = html;
+      frag.appendChild(tr);
+    });
+    tbody.innerHTML = '';
+    tbody.appendChild(frag);
+  }
+
+  function exportSummaryCsv() {
+    const rows = _filteredSummaryRows();
+    const suppliers = _filteredSuppliers(rows);
+    if (!rows.length) { alert('Нет данных для экспорта'); return; }
+    const esc = v => {
+      if (v == null) return '';
+      const s = String(v);
+      return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [];
+    lines.push(['Наименование', 'Группа', ...suppliers].map(esc).join(';'));
+    rows.forEach(r => {
+      lines.push([r.product, r.category, ...suppliers.map(s => r.prices[s] ?? '')].map(esc).join(';'));
+    });
+    // BOM для Excel
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `сводная_${_summaryCategory || 'все'}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  window.exportSummaryCsv = exportSummaryCsv;
 
   // ============ Модалка причины ============
   function openReasonModal(deviationId) {

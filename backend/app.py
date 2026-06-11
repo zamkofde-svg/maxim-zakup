@@ -282,6 +282,80 @@ def get_top2(
     return result[:limit]
 
 
+# ============ СВОДНАЯ ПО ПОСТАВЩИКАМ ============
+
+@app.get("/api/summary")
+def get_summary(
+    db: Session = Depends(get_db),
+    category: Optional[str] = None,
+):
+    """Сводная таблица: каждое мастер-наименование × каждый поставщик → цена.
+
+    Возвращает:
+        {
+          "suppliers": ["Поставщик 1", ...],   // отсортированы по числу заполнений (desc)
+          "categories": [...],
+          "rows": [{
+              "product_id", "product", "category", "unit_type",
+              "prices": {"Поставщик 1": 123.0, ...},  // только те у кого есть цена
+              "min_price", "max_price", "avg_price", "suppliers_count"
+          }, ...]
+        }
+    """
+    # Подтянем все мастер-позиции и все цены к ним
+    q = (
+        select(PriceQuote, ProductMaster, Category, Supplier)
+        .join(ProductMaster, PriceQuote.product_master_id == ProductMaster.id)
+        .join(Category, ProductMaster.category_id == Category.id)
+        .join(Supplier, PriceQuote.supplier_id == Supplier.id)
+    )
+    if category:
+        q = q.where(Category.name == category)
+
+    by_product: dict[int, dict] = {}
+    sup_freq: dict[str, int] = {}
+    for pq, pm, cat, sup in db.execute(q).all():
+        item = by_product.setdefault(pm.id, {
+            "product_id": pm.id, "product": pm.name, "category": cat.name,
+            "unit_type": pq.unit_type, "prices": {},
+        })
+        item["prices"][sup.name] = pq.unit_price
+        # последняя unit_type «победит» — но по факту они одинаковы внутри одной позиции
+        item["unit_type"] = pq.unit_type
+        sup_freq[sup.name] = sup_freq.get(sup.name, 0) + 1
+
+    # Список поставщиков — по убыванию числа заполненных цен (самый «полный» левее)
+    suppliers_sorted = [s for s, _ in sorted(sup_freq.items(), key=lambda x: (-x[1], x[0].casefold()))]
+
+    rows = []
+    for item in by_product.values():
+        prices = item["prices"]
+        if not prices:
+            continue
+        vals = list(prices.values())
+        rows.append({
+            "product_id": item["product_id"],
+            "product": item["product"],
+            "category": item["category"],
+            "unit_type": item["unit_type"],
+            "prices": prices,
+            "min_price": min(vals),
+            "max_price": max(vals),
+            "avg_price": sum(vals) / len(vals),
+            "suppliers_count": len(vals),
+        })
+    rows.sort(key=lambda x: (x["category"], x["product"].casefold()))
+
+    # Все категории (даже без цен — чтобы UI показал все вкладки)
+    categories = sorted({c.name for c in db.execute(select(Category)).scalars()})
+
+    return {
+        "suppliers": suppliers_sorted,
+        "categories": categories,
+        "rows": rows,
+    }
+
+
 # ============ RESTAURANTS ============
 
 @app.get("/api/restaurants")
