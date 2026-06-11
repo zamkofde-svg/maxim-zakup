@@ -92,6 +92,33 @@ def _detect_price_column_by_header(ws) -> tuple[int | None, str]:
     return best_col, best_title
 
 
+def _list_price_columns_by_header(ws) -> list[tuple[int, str, int]]:
+    """Возвращает все колонки шапки которые похожи на «Цена/Стоимость»,
+    в виде [(col_index_1based, header_text, score), ...] отсортированно по score↓.
+    Первая = самая «правильная» (Цена кг/литр), последние = просто «Цена».
+    Если ни одной — пустой список.
+    """
+    out = []
+    for c in range(2, 8):
+        title = ws.cell(1, c).value
+        score = _header_keyword_score(title)
+        if score > 0:
+            out.append((c, str(title or ""), score))
+    out.sort(key=lambda x: -x[2])
+    return out
+
+
+def _unit_type_for_header(header_text: str, category: str) -> str:
+    """Определяем unit_type по тексту шапки. Если в шапке не было намёков —
+    fallback на список категорий (исторический хардкод)."""
+    t = (header_text or "").lower()
+    if "кг" in t or "литр" in t or "/л" in t:
+        return "kg_or_l"
+    if "упак" in t:
+        return "pkg"
+    return "kg_or_l" if category in UNIT_PRICE_CATEGORIES else "pkg"
+
+
 def _detect_price_column_heuristic(ws) -> int | None:
     """Fallback: если в шапке нет «Цена» (упрощённые матрицы вроде Овощифруктов
     у Пашаяна), берём колонку B..F с максимальным числом положительных значений.
@@ -134,27 +161,19 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
         ws = wb[sheet_name]
         category = sheet_name.strip()
 
-        # 1) Основной путь — по шапке. Это надёжно: даже если поставщик понапихал
-        #    чисел в колонку "Упаковка брутто", мы возьмём цену из "Цена кг/литр".
-        price_col, price_header = _detect_price_column_by_header(ws)
-        unit_type: str
-        if price_col is not None:
-            # unit_type по тексту шапки
-            t = price_header.lower()
-            if "кг" in t or "литр" in t or "/л" in t:
-                unit_type = "kg_or_l"
-            elif "упак" in t:
-                unit_type = "pkg"
-            else:
-                # просто «Цена» — старый fallback по категории
-                unit_type = "kg_or_l" if category in UNIT_PRICE_CATEGORIES else "pkg"
-        else:
-            # 2) Fallback — упрощённые матрицы без шапки (типа Овощифрукты у Пашаяна:
-            #    A=Наименование, B=Ед.изм). Если шапки нет, угадываем по эвристике.
-            price_col = _detect_price_column_heuristic(ws)
-            if price_col is None:
-                continue  # реально пустая вкладка
-            unit_type = "kg_or_l" if category in UNIT_PRICE_CATEGORIES else "pkg"
+        # Все колонки шапки которые содержат «Цена/Стоимость», отсортированные по «правильности»:
+        # сначала «Цена кг/литр», потом «Цена упаковка», потом просто «Цена».
+        # Для каждой строки берём ПЕРВУЮ непустую — так подхватим и тех поставщиков
+        # которые заполнили цену за упаковку, и тех кто заполнил цену за кг.
+        price_cols = _list_price_columns_by_header(ws)
+
+        if not price_cols:
+            # Шапки нет вовсе (например упрощённый Овощифрукты у Пашаяна: A=Наимен., B=Ед.изм).
+            # Угадываем колонку по эвристике на всю вкладку.
+            heur = _detect_price_column_heuristic(ws)
+            if heur is None:
+                continue
+            price_cols = [(heur, "", 0)]
 
         for row in range(2, ws.max_row + 1):
             product_raw = ws.cell(row, 1).value
@@ -164,15 +183,29 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
             if product.startswith("Наименование"):
                 continue
 
-            price = _to_float(ws.cell(row, price_col).value)
-            if price is None or price <= 0:
-                # либо ячейка пуста, либо там текст вроде '91,54 / 87,77' — пропускаем.
-                # Это правильно: поставщик не предлагает или заполнил криво.
+            # Перебираем колонки в порядке приоритета, берём первую с валидной ценой
+            chosen_col = None
+            chosen_header = ""
+            chosen_price = None
+            for col_idx, header_text, _ in price_cols:
+                v = _to_float(ws.cell(row, col_idx).value)
+                if v is None or v <= 0:
+                    continue
+                chosen_col = col_idx
+                chosen_header = header_text
+                chosen_price = v
+                break
+
+            if chosen_price is None:
+                # Ни в одной из «ценовых» колонок числа нет — позиции у этого
+                # поставщика нет. Не угадываем по другим колонкам.
                 continue
 
-            # pkg_net/pkg_gross — берём только если их колонки не совпадают с ценой
-            pkg_gross = _to_float(ws.cell(row, 2).value) if price_col != 2 else None
-            pkg_net = _to_float(ws.cell(row, 4).value) if price_col != 4 else None
+            unit_type = _unit_type_for_header(chosen_header, category)
+
+            # pkg_net/pkg_gross — берём только если их колонки не пересеклись с ценой
+            pkg_gross = _to_float(ws.cell(row, 2).value) if chosen_col != 2 else None
+            pkg_net = _to_float(ws.cell(row, 4).value) if chosen_col != 4 else None
 
             quotes.append(PriceQuote(
                 supplier=supplier_name,
@@ -180,7 +213,7 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
                 product=product,
                 product_raw=str(product_raw),
                 unit_type=unit_type,
-                unit_price=price,
+                unit_price=chosen_price,
                 pkg_net=pkg_net,
                 pkg_gross=pkg_gross,
                 row=row,
