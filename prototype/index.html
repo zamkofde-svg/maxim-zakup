@@ -2222,7 +2222,7 @@
         const deleted_r = r.total_rows_deleted || 0;
         const n_sup = (r.supplier_changes || []).length;
         const db_ok = refresh.status === 'ok';
-        const db_note = db_ok ? '\n• Топ-2 и анализ обновлены.' : '\n• ⚠ Не удалось обновить Топ-2 автоматически (нажмите «Синхронизировать» отдельно).';
+        const db_note = db_ok ? '\n• Топ-2 и анализ обновлены.' : '\n• ⚠ Не удалось обновить Топ-2 автоматически. Нажмите «Запустить пересчёт» в правом верхнем углу.';
         const new_sups = r.new_suppliers || [];
         const new_note = new_sups.length
           ? `\n\n🆕 Обнаружены новые поставщики (${new_sups.length}):\n  • ${new_sups.join('\n  • ')}\nИм созданы все вкладки из мастер-матрицы.`

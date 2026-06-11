@@ -639,26 +639,54 @@ def _do_master_sync(dry_run: bool = False, prune: bool = True):
         # После реального prune-sync — автоматически обновляем БД (drive_sync + importer),
         # чтобы Топ-2 и анализ сразу показывали свежие цены.
         if not dry_run:
+            root = Path(__file__).parent.parent
+            _master_sync_state["db_refresh"] = {"status": "running"}
+            drive_rc, importer_rc = None, None
+            drive_err, importer_err = "", ""
+            stage = "drive_sync"
             try:
-                root = Path(__file__).parent.parent
-                _master_sync_state["db_refresh"] = {"status": "running"}
+                # Таймауты подняли до 30 мин: при 30+ поставщиках и Sheets-throttle всё может занять много времени.
                 r1 = subprocess.run(
                     [sys.executable, "-m", "etl.sync_from_drive"],
-                    cwd=str(root), capture_output=True, text=True, timeout=600,
+                    cwd=str(root), capture_output=True, text=True, timeout=1800,
                 )
+                drive_rc = r1.returncode
+                drive_err = (r1.stderr or "")[-800:]
+                stage = "importer"
                 r2 = subprocess.run(
                     [sys.executable, "-m", "backend.importer"],
-                    cwd=str(root), capture_output=True, text=True, timeout=600,
+                    cwd=str(root), capture_output=True, text=True, timeout=1800,
                 )
+                importer_rc = r2.returncode
+                importer_err = (r2.stderr or "")[-800:]
+            except subprocess.TimeoutExpired as te:
+                # Записываем что именно упало по таймауту
                 _master_sync_state["db_refresh"] = {
-                    "status": "ok" if r1.returncode == 0 and r2.returncode == 0 else "error",
-                    "drive_sync_rc": r1.returncode,
-                    "importer_rc": r2.returncode,
-                    "drive_sync_err": r1.stderr[-300:] if r1.returncode else "",
-                    "importer_err": r2.stderr[-300:] if r2.returncode else "",
+                    "status": "error",
+                    "error": f"{stage} timeout: {te}",
+                    "drive_sync_rc": drive_rc,
+                    "importer_rc": importer_rc,
+                    "drive_sync_err": drive_err,
+                    "importer_err": importer_err,
                 }
             except Exception as e2:
-                _master_sync_state["db_refresh"] = {"status": "error", "error": str(e2)}
+                import traceback
+                _master_sync_state["db_refresh"] = {
+                    "status": "error",
+                    "error": f"{stage}: {type(e2).__name__}: {e2}\n{traceback.format_exc()[-500:]}",
+                    "drive_sync_rc": drive_rc,
+                    "importer_rc": importer_rc,
+                    "drive_sync_err": drive_err,
+                    "importer_err": importer_err,
+                }
+            else:
+                _master_sync_state["db_refresh"] = {
+                    "status": "ok" if drive_rc == 0 and importer_rc == 0 else "error",
+                    "drive_sync_rc": drive_rc,
+                    "importer_rc": importer_rc,
+                    "drive_sync_err": drive_err if drive_rc else "",
+                    "importer_err": importer_err if importer_rc else "",
+                }
     except Exception as e:
         import traceback
         _master_sync_state["status"] = "error"
