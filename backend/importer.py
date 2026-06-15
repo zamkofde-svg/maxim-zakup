@@ -301,6 +301,10 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
         ).scalar_one_or_none()
 
         if existing:
+            # unit_type может меняться независимо от цены (поставщик вписал «КГ» в колонку
+            # «Ед. изм», а раньше там было пусто — теперь мы знаем точнее). Синхронизируем.
+            if existing.unit_type != q.unit_type:
+                existing.unit_type = q.unit_type
             if existing.unit_price != q.unit_price:
                 # архивируем старое (изменение)
                 db.add(PriceHistory(

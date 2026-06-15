@@ -165,6 +165,43 @@ def _detect_comment_column(ws) -> int | None:
     return None
 
 
+def _detect_unit_column(ws) -> int | None:
+    """Ищет колонку с заголовком «Ед. изм» / «Единица» — там по строкам стоит
+    «КГ», «Л», «ШТ», «УПАК» и т.п. Если такая колонка есть, она имеет ПРИОРИТЕТ
+    над хардкодом UNIT_PRICE_CATEGORIES — мы определяем unit_type по факту
+    того что вписал поставщик, а не догадываемся."""
+    for c in range(2, 10):  # B..I
+        title = ws.cell(1, c).value
+        if title is None: continue
+        t = str(title).lower().replace(".", " ").replace(",", " ")
+        # «Ед. изм», «ЕД ИЗМ», «Единица измерения», «Единица», «unit»
+        if "ед" in t and "изм" in t:
+            return c
+        if "единиц" in t:
+            return c
+        if t.strip() in ("unit", "ед", "ед.", "uom"):
+            return c
+    return None
+
+
+def _unit_type_from_cell(v) -> str | None:
+    """Из текста ячейки «Ед. изм» (КГ / Л / ШТ / УПАК) → 'kg_or_l' / 'pkg' / None."""
+    if v is None:
+        return None
+    s = str(v).strip().lower().replace(".", "")
+    if not s:
+        return None
+    # кг, kg, литр, л, ml — это вес/объём
+    if s in ("кг", "kg") or s.startswith("кг"):
+        return "kg_or_l"
+    if s == "л" or s.startswith("литр") or s == "l" or s.startswith("liter"):
+        return "kg_or_l"
+    # шт, упак, уп, бут (бутылка)
+    if s in ("шт", "уп", "упак", "штук") or s.startswith("шт") or s.startswith("упак") or s.startswith("уп "):
+        return "pkg"
+    return None
+
+
 def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
     wb = load_workbook(path, data_only=True)  # читаем вычисленные значения формул
     quotes: list[PriceQuote] = []
@@ -179,6 +216,7 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
         # которые заполнили цену за упаковку, и тех кто заполнил цену за кг.
         price_cols = _list_price_columns_by_header(ws)
         comment_col = _detect_comment_column(ws)
+        unit_col = _detect_unit_column(ws)
 
         if not price_cols:
             # Шапки нет вовсе (например упрощённый Овощифрукты у Пашаяна: A=Наимен., B=Ед.изм).
@@ -215,6 +253,13 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
                 continue
 
             unit_type = _unit_type_for_header(chosen_header, category)
+            # Если в матрице есть колонка «Ед. изм» и поставщик в этой строке
+            # явно указал КГ/Л/ШТ/УПАК — её мнение приоритетнее любых догадок:
+            # колонка прямо говорит за что цена, не надо угадывать.
+            if unit_col is not None:
+                forced = _unit_type_from_cell(ws.cell(row, unit_col).value)
+                if forced is not None:
+                    unit_type = forced
 
             # pkg_net/pkg_gross — берём только если их колонки не пересеклись с ценой
             pkg_gross = _to_float(ws.cell(row, 2).value) if chosen_col != 2 else None
