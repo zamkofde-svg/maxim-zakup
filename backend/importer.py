@@ -317,6 +317,7 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
                 existing.unit_price = q.unit_price
                 existing.pkg_net = q.pkg_net
                 existing.pkg_gross = q.pkg_gross
+                existing.supplier_comment = q.supplier_comment
                 existing.captured_at = now
                 history += 1
             elif need_snapshot:
@@ -326,12 +327,16 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
                     unit_price=existing.unit_price, captured_at=now,
                 ))
                 snapshot_saved += 1
+            # Комментарий может меняться отдельно от цены — обновляем всегда, если отличается
+            if existing.supplier_comment != q.supplier_comment:
+                existing.supplier_comment = q.supplier_comment
             updated += 1
         else:
             db.add(PriceQuote(
                 supplier_id=sup.id, product_master_id=pm.id,
                 unit_price=q.unit_price, unit_type=q.unit_type,
-                pkg_net=q.pkg_net, pkg_gross=q.pkg_gross, captured_at=now,
+                pkg_net=q.pkg_net, pkg_gross=q.pkg_gross,
+                supplier_comment=q.supplier_comment, captured_at=now,
             ))
             # Сразу пишем эту же цену в history — это «известная цена с такой-то даты»
             db.add(PriceHistory(

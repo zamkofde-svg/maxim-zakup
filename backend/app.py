@@ -335,6 +335,7 @@ def get_top2(
         item["quotes"].append({
             "supplier_id": sup.id, "supplier": sup.name,
             "price": pq.unit_price,
+            "supplier_comment": pq.supplier_comment or "",
         })
 
     result = []

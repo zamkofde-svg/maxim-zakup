@@ -1768,16 +1768,21 @@
       const color = catBadgeColor[item.category] || 'slate';
       const t2 = item.top2;
       const delta = t2 ? ((t2.price - item.top1.price) / item.top1.price * 100).toFixed(1) : null;
+      const safeText = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const t1Comment = item.top1.supplier_comment ? `<div class="text-[11px] text-slate-400 italic mt-0.5">${safeText(item.top1.supplier_comment)}</div>` : '';
+      const t2Comment = t2 && t2.supplier_comment ? `<div class="text-[11px] text-slate-400 italic mt-0.5">${safeText(t2.supplier_comment)}</div>` : '';
       tr.innerHTML = `
         <td class="px-6 py-3.5 font-medium">${item.product}</td>
         <td class="px-6 py-3.5"><span class="text-xs bg-${color}-50 text-${color}-700 px-2 py-0.5 rounded">${item.category}</span></td>
         <td class="px-6 py-3.5">
           <div class="font-semibold text-slate-900">${item.top1.price.toFixed(2)} ${unit}</div>
           <div class="text-xs text-slate-500">${item.top1.supplier}</div>
+          ${t1Comment}
         </td>
         <td class="px-6 py-3.5">
           ${t2 ? `<div class="font-semibold text-slate-700">${t2.price.toFixed(2)} ${unit}</div>
-                  <div class="text-xs text-slate-500">${t2.supplier}</div>`
+                  <div class="text-xs text-slate-500">${t2.supplier}</div>
+                  ${t2Comment}`
                 : `<div class="text-xs text-slate-400 italic">только 1 поставщик</div>`}
         </td>
         <td class="px-6 py-3.5"><span class="${t2 ? 'text-emerald-600' : 'text-slate-400'} text-sm font-medium">${delta !== null ? '+' + delta + '%' : '—'}</span></td>

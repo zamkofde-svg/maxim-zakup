@@ -33,6 +33,31 @@ def get_db():
 
 
 def init_db():
-    """Создаёт все таблицы (если их нет). Для миграций потом — alembic."""
+    """Создаёт все таблицы (если их нет) + лёгкие in-place миграции для SQLite."""
     from . import models  # noqa: F401 — регистрирует все модели в Base.metadata
     Base.metadata.create_all(engine)
+    _apply_lightweight_migrations()
+
+
+def _apply_lightweight_migrations() -> None:
+    """Добавляет колонки, которых ещё нет в существующей БД.
+    SQLite ALTER TABLE ADD COLUMN не падает на nullable-полях — это безопасная операция.
+    Для серьёзных миграций потом перейдём на Alembic.
+    """
+    from sqlalchemy import text, inspect
+    insp = inspect(engine)
+    expected = {
+        "price_quotes": [
+            ("supplier_comment", "TEXT"),
+        ],
+    }
+    with engine.begin() as conn:
+        for table, cols in expected.items():
+            if table not in insp.get_table_names():
+                continue
+            existing = {c["name"] for c in insp.get_columns(table)}
+            for col_name, col_type in cols:
+                if col_name in existing:
+                    continue
+                # Безопасный ALTER — добавляет nullable колонку
+                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{col_name}" {col_type}'))

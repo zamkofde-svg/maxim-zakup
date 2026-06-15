@@ -126,6 +126,10 @@ class PriceQuote(Base):
     unit_type: Mapped[str] = mapped_column(String(16))   # kg_or_l / pkg
     pkg_net: Mapped[Optional[float]] = mapped_column(Float)
     pkg_gross: Mapped[Optional[float]] = mapped_column(Float)
+    # Свободный текст, который ВПИСЫВАЕТ САМ ПОСТАВЩИК в свою матрицу
+    # (колонка с заголовком «Комментарий» — типичные значения: страна происхождения,
+    # фасовка, особенности партии).
+    supplier_comment: Mapped[Optional[str]] = mapped_column(String, default=None)
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     supplier: Mapped[Supplier] = relationship()

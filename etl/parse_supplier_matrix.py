@@ -58,6 +58,7 @@ class PriceQuote:
     pkg_net: float | None
     pkg_gross: float | None
     row: int            # номер строки в файле — для дебага
+    supplier_comment: str | None = None  # свободный текст из колонки «Комментарий» матрицы поставщика
 
 
 def _header_keyword_score(title: str) -> int:
@@ -153,6 +154,17 @@ def _detect_price_column_heuristic(ws) -> int | None:
     return None
 
 
+def _detect_comment_column(ws) -> int | None:
+    """Ищет колонку с заголовком «Комментарий»/«Примечание»/«Comment». 1-based."""
+    for c in range(2, 10):  # B..I
+        title = ws.cell(1, c).value
+        if title is None: continue
+        t = str(title).lower()
+        if "коммент" in t or "примеч" in t or "comment" in t:
+            return c
+    return None
+
+
 def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
     wb = load_workbook(path, data_only=True)  # читаем вычисленные значения формул
     quotes: list[PriceQuote] = []
@@ -166,6 +178,7 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
         # Для каждой строки берём ПЕРВУЮ непустую — так подхватим и тех поставщиков
         # которые заполнили цену за упаковку, и тех кто заполнил цену за кг.
         price_cols = _list_price_columns_by_header(ws)
+        comment_col = _detect_comment_column(ws)
 
         if not price_cols:
             # Шапки нет вовсе (например упрощённый Овощифрукты у Пашаяна: A=Наимен., B=Ед.изм).
@@ -207,6 +220,14 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
             pkg_gross = _to_float(ws.cell(row, 2).value) if chosen_col != 2 else None
             pkg_net = _to_float(ws.cell(row, 4).value) if chosen_col != 4 else None
 
+            supplier_comment = None
+            if comment_col is not None:
+                v = ws.cell(row, comment_col).value
+                if v is not None:
+                    s = str(v).strip()
+                    if s:
+                        supplier_comment = s
+
             quotes.append(PriceQuote(
                 supplier=supplier_name,
                 category=category,
@@ -217,6 +238,7 @@ def parse(path: str | Path, supplier_name: str) -> list[PriceQuote]:
                 pkg_net=pkg_net,
                 pkg_gross=pkg_gross,
                 row=row,
+                supplier_comment=supplier_comment,
             ))
 
     return quotes
