@@ -150,12 +150,80 @@ def list_categories(db: Session = Depends(get_db)):
 
 # ============ SUPPLIERS ============
 
+# In-memory кэш контактов поставщиков из Google Sheets (TTL 5 минут).
+# Файл "Контакты поставщиков" в той же папке Drive, обновляется заказчиком раз в неделю.
+_CONTACTS_FILE_ID = "1YSPGoqCYvB9U-H7Pd5tMwbI3fE8mWqlXl0_elUXieqg"
+_contacts_cache = {"data": {}, "fetched_at": 0.0, "error": None}
+
+
+def _norm_supplier_name(s: str) -> str:
+    """Нормализация имени поставщика для сопоставления (без кавычек, пробелов, регистра)."""
+    if not s:
+        return ""
+    out = str(s).lower().strip()
+    for ch in ('"', "'", "«", "»", "ё"):
+        out = out.replace(ch, "е" if ch == "ё" else "")
+    import re
+    return re.sub(r"\s+", " ", out)
+
+
+def _load_supplier_contacts(force: bool = False) -> dict[str, dict]:
+    """Возвращает {normalized_name: {min_order, contact_name, phone, comment}}.
+    TTL 5 минут — чтобы не дёргать Google Sheets на каждый запрос."""
+    import time as _t
+    if not force and _contacts_cache["data"] and (_t.time() - _contacts_cache["fetched_at"] < 300):
+        return _contacts_cache["data"]
+    try:
+        import sys as _sys
+        etl_path = str(Path(__file__).parent.parent / "etl")
+        if etl_path not in _sys.path:
+            _sys.path.insert(0, etl_path)
+        from sync_master_to_suppliers import _get_services  # noqa
+        _, sheets = _get_services()
+        # Берём только первую вкладку — там всё
+        meta = sheets.spreadsheets().get(spreadsheetId=_CONTACTS_FILE_ID, fields="sheets.properties").execute()
+        title = meta["sheets"][0]["properties"]["title"]
+        resp = sheets.spreadsheets().values().get(
+            spreadsheetId=_CONTACTS_FILE_ID, range=f"'{title}'!A2:E200"
+        ).execute()
+        data = {}
+        for row in resp.get("values", []):
+            if not row or not row[0]:
+                continue
+            name = str(row[0]).strip()
+            data[_norm_supplier_name(name)] = {
+                "raw_name": name,
+                "min_order": (row[1] if len(row) > 1 else "") or "",
+                "contact_name": (row[2] if len(row) > 2 else "") or "",
+                "phone": (row[3] if len(row) > 3 else "") or "",
+                "comment": (row[4] if len(row) > 4 else "") or "",
+            }
+        _contacts_cache["data"] = data
+        _contacts_cache["fetched_at"] = _t.time()
+        _contacts_cache["error"] = None
+    except Exception as e:
+        _contacts_cache["error"] = f"{type(e).__name__}: {e}"
+    return _contacts_cache["data"]
+
+
+@app.post("/api/suppliers/contacts/refresh")
+def refresh_supplier_contacts(user: User = Depends(require_role("buyer"))):
+    """Принудительно перечитывает контакты из Google Sheets (раз в неделю заказчик
+    обновляет файл, а кэш TTL 5 минут — этот эндпоинт сбрасывает кэш моментально)."""
+    _load_supplier_contacts(force=True)
+    return {
+        "loaded": len(_contacts_cache["data"]),
+        "error": _contacts_cache["error"],
+    }
+
+
 @app.get("/api/suppliers")
 def list_suppliers(
     db: Session = Depends(get_db),
     only_with_quotes: bool = Query(False),
 ):
-    """Список поставщиков + сколько у них позиций + дата последнего обновления + сколько раз они Топ-1."""
+    """Список поставщиков + сколько у них позиций + дата последнего обновления + сколько раз они Топ-1
+    + контакты из Google Sheets (имя, телефон, мин. сумма заказа, комментарий)."""
     sups = db.execute(
         select(Supplier).where(Supplier.is_internal == False).order_by(Supplier.name)
     ).scalars().all()
@@ -183,6 +251,8 @@ def list_suppliers(
     ).all():
         cats_by_supplier.setdefault(row[0], set()).add(row[1])
 
+    contacts = _load_supplier_contacts()
+
     result = []
     for s in sups:
         q_count = db.scalar(
@@ -193,12 +263,18 @@ def list_suppliers(
         last_updated = db.scalar(
             select(func.max(PriceQuote.captured_at)).where(PriceQuote.supplier_id == s.id)
         )
+        contact = contacts.get(_norm_supplier_name(s.name)) or {}
         result.append({
             "id": s.id, "name": s.name,
             "quotes_count": q_count,
             "top1_count": top1_counter.get(s.id, 0),
             "categories": sorted(cats_by_supplier.get(s.id, [])),
             "last_updated": last_updated.isoformat() if last_updated else None,
+            "min_order": contact.get("min_order", ""),
+            "contact_name": contact.get("contact_name", ""),
+            "phone": contact.get("phone", ""),
+            "comment": contact.get("comment", ""),
+            "has_contact": bool(contact),
         })
     # Сначала те у кого есть цены
     result.sort(key=lambda x: (-x["quotes_count"], x["name"]))

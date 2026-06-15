@@ -931,100 +931,45 @@
       <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-4 flex gap-4">
         <i data-lucide="info" class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
         <div class="flex-1">
-          <div class="font-semibold text-blue-900">Поставщики продолжают заполнять матрицы в Google Sheets</div>
-          <div class="text-sm text-blue-800 mt-1">Им ничего не нужно менять. Цены автоматически синхронизируются <b>каждый день в 06:00 по Тюмени</b>, плюс кнопка «Запустить пересчёт» в правом верхнем углу для ручного обновления.</div>
+          <div class="font-semibold text-blue-900">Контакты подгружаются из Google Sheets «Контакты поставщиков»</div>
+          <div class="text-sm text-blue-800 mt-1">Обновляйте этот файл по мере необходимости — раз в неделю/при изменении контактов. На странице карточки берутся из БД (цены/статусы матриц) + контакты из той таблицы. Кнопка «Обновить контакты» ниже принудительно перечитывает таблицу.</div>
         </div>
       </div>
 
-      <div class="bg-white rounded-xl border border-slate-200">
-        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+      <div class="bg-white rounded-xl border border-slate-200 mb-4">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 class="font-semibold text-slate-900">Поставщики · <span id="suppliers-count">…</span> активных</h3>
+            <h3 class="font-semibold text-slate-900">Поставщики · <span id="suppliers-count">…</span></h3>
             <p class="text-xs text-slate-500 mt-0.5">Кнопка приведёт матрицы к мастеру (удалит лишнее, сохранит цены)</p>
           </div>
-          <button onclick="runMasterSync()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
-            <i data-lucide="git-fork" class="w-4 h-4"></i>
-            Обновить по мастер-матрице
-          </button>
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="relative">
+              <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-400"></i>
+              <input id="suppliers-search" type="text" placeholder="Поиск по поставщику…"
+                     class="border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <button onclick="refreshSupplierContacts()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium buyer-only">
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              Обновить контакты
+            </button>
+            <button onclick="runMasterSync()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
+              <i data-lucide="git-fork" class="w-4 h-4"></i>
+              Обновить по мастер-матрице
+            </button>
+          </div>
         </div>
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
-            <tr>
-              <th class="px-6 py-3 text-left">Поставщик</th>
-              <th class="px-6 py-3 text-left">Категории</th>
-              <th class="px-6 py-3 text-right">Позиций</th>
-              <th class="px-6 py-3 text-right">В Топ-1</th>
-              <th class="px-6 py-3 text-left">Обновлено</th>
-              <th class="px-6 py-3 text-left">Матрица</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3 font-medium">Глобал Фудс</td>
-              <td class="px-6 py-3 text-slate-600 text-xs">Молочка, Сыры</td>
-              <td class="px-6 py-3 text-right">142</td>
-              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">38</span></td>
-              <td class="px-6 py-3 text-slate-500 text-xs">2 часа назад</td>
-              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3 font-medium">ТК УМАЙ</td>
-              <td class="px-6 py-3 text-slate-600 text-xs">Сыры, Бакалея</td>
-              <td class="px-6 py-3 text-right">98</td>
-              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">22</span></td>
-              <td class="px-6 py-3 text-slate-500 text-xs">сегодня в 11:30</td>
-              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3 font-medium">ЮФС</td>
-              <td class="px-6 py-3 text-slate-600 text-xs">Мясо, Рыба</td>
-              <td class="px-6 py-3 text-right">76</td>
-              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">19</span></td>
-              <td class="px-6 py-3 text-slate-500 text-xs">вчера в 18:42</td>
-              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3 font-medium">УРАЛ ФУД</td>
-              <td class="px-6 py-3 text-slate-600 text-xs">Мясо</td>
-              <td class="px-6 py-3 text-right">54</td>
-              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">31</span></td>
-              <td class="px-6 py-3 text-slate-500 text-xs">сегодня в 09:15</td>
-              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3 font-medium">Восток-Запад</td>
-              <td class="px-6 py-3 text-slate-600 text-xs">Молочка</td>
-              <td class="px-6 py-3 text-right">41</td>
-              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">15</span></td>
-              <td class="px-6 py-3 text-slate-500 text-xs">сегодня в 12:08</td>
-              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3 font-medium">ЕвроСиб-Трейд</td>
-              <td class="px-6 py-3 text-slate-600 text-xs">Бакалея, Консервация</td>
-              <td class="px-6 py-3 text-right">187</td>
-              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">62</span></td>
-              <td class="px-6 py-3 text-amber-600 text-xs">3 дня назад</td>
-              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3 font-medium">Глобал Фудс</td>
-              <td class="px-6 py-3 text-slate-600 text-xs">Шоколад</td>
-              <td class="px-6 py-3 text-right">28</td>
-              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">12</span></td>
-              <td class="px-6 py-3 text-slate-500 text-xs">сегодня в 13:50</td>
-              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
-            </tr>
-            <tr class="hover:bg-slate-50">
-              <td class="px-6 py-3 font-medium">ЮФС</td>
-              <td class="px-6 py-3 text-slate-600 text-xs">Рыба и морепродукты</td>
-              <td class="px-6 py-3 text-right">52</td>
-              <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">18</span></td>
-              <td class="px-6 py-3 text-slate-500 text-xs">вчера в 14:00</td>
-              <td class="px-6 py-3"><a href="#" class="text-indigo-600 text-sm flex items-center gap-1"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>Открыть</a></td>
-            </tr>
-          </tbody>
-        </table>
+      </div>
+
+      <div id="suppliers-cards" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <!-- карточки рисуются JS -->
+      </div>
+      <div id="suppliers-empty" class="bg-white rounded-xl border border-slate-200 p-12 text-center text-sm text-slate-400 hidden">
+        Никого не нашли
+      </div>
+
+      <!-- скрытая старая таблица оставлена для совместимости с hydrateSuppliers fallback -->
+      <div style="display:none">
+        <table><tbody></tbody></table>
       </div>
     </div>
 
@@ -1902,37 +1847,154 @@
   }
 
   // ============ Поставщики ============
+  let _suppliersData = [];
+  let _suppliersQuery = '';
+
   async function hydrateSuppliers() {
-    const data = await tryFetch(`${API_BASE}/suppliers?only_with_quotes=true`);
+    const data = await tryFetch(`${API_BASE}/suppliers`);
     if (!data) return;
-    const tbody = document.querySelector('#page-suppliers tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
+    _suppliersData = data;
+    // Поиск
+    const sb = document.getElementById('suppliers-search');
+    if (sb && !sb._wired) {
+      sb._wired = true;
+      sb.addEventListener('input', e => {
+        _suppliersQuery = e.target.value.trim().toLowerCase();
+        renderSuppliers();
+      });
+    }
+    renderSuppliers();
+  }
 
-    // Кол-во в шапке
+  function _supplierInitial(name) {
+    if (!name) return '?';
+    const m = name.match(/[A-Za-zА-Яа-яЁё0-9]/);
+    return m ? m[0].toUpperCase() : '?';
+  }
+
+  function _supplierColor(name) {
+    // Стабильный цвет по имени (хэш → одна из палитр)
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffffff;
+    const palettes = [
+      ['bg-indigo-100', 'text-indigo-700'],
+      ['bg-emerald-100', 'text-emerald-700'],
+      ['bg-amber-100', 'text-amber-700'],
+      ['bg-rose-100', 'text-rose-700'],
+      ['bg-sky-100', 'text-sky-700'],
+      ['bg-violet-100', 'text-violet-700'],
+      ['bg-teal-100', 'text-teal-700'],
+      ['bg-pink-100', 'text-pink-700'],
+    ];
+    return palettes[Math.abs(h) % palettes.length];
+  }
+
+  function _phoneHref(p) {
+    if (!p) return null;
+    const digits = p.replace(/[^\d+]/g, '');
+    if (!digits) return null;
+    return digits.startsWith('+') ? digits : '+' + digits.replace(/^\+/, '');
+  }
+
+  function renderSuppliers() {
+    const wrap = document.getElementById('suppliers-cards');
+    const empty = document.getElementById('suppliers-empty');
     const cnt = document.getElementById('suppliers-count');
-    if (cnt) cnt.textContent = data.length;
-
-    if (data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">Ни одного поставщика с заполненными ценами.</td></tr>';
+    if (!wrap) return;
+    const q = _suppliersQuery;
+    const filtered = _suppliersData.filter(s => {
+      if (!q) return true;
+      return (s.name + ' ' + (s.contact_name || '') + ' ' + (s.phone || ''))
+        .toLowerCase().includes(q);
+    });
+    if (cnt) cnt.textContent = `${filtered.length} из ${_suppliersData.length}`;
+    if (!filtered.length) {
+      wrap.innerHTML = '';
+      empty.classList.remove('hidden');
       return;
     }
+    empty.classList.add('hidden');
 
-    for (const s of data) {
-      const tr = document.createElement('tr');
-      tr.className = 'hover:bg-slate-50';
+    const frag = document.createDocumentFragment();
+    for (const s of filtered) {
+      const [bg, fg] = _supplierColor(s.name);
       const updated = s.last_updated ? fmtTime(s.last_updated) : '—';
-      tr.innerHTML = `
-        <td class="px-6 py-3 font-medium">${s.name}</td>
-        <td class="px-6 py-3 text-slate-600 text-xs">${s.categories.join(', ') || '—'}</td>
-        <td class="px-6 py-3 text-right">${s.quotes_count}</td>
-        <td class="px-6 py-3 text-right"><span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-semibold">${s.top1_count}</span></td>
-        <td class="px-6 py-3 text-slate-500 text-xs">${updated}</td>
-        <td class="px-6 py-3"><span class="text-slate-400 text-sm">—</span></td>
+      const phoneHref = _phoneHref(s.phone);
+      const phoneHtml = s.phone
+        ? (phoneHref
+            ? `<a href="tel:${phoneHref}" class="text-indigo-600 hover:underline">${s.phone}</a>`
+            : `<span>${s.phone}</span>`)
+        : '<span class="text-slate-400">—</span>';
+      const contactHtml = s.contact_name
+        ? `<div class="text-sm font-medium text-slate-900">${s.contact_name}</div>`
+        : '<div class="text-sm text-slate-400">контакт не указан</div>';
+      const minOrderHtml = s.min_order
+        ? `<span class="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-2 py-0.5 rounded">мин. заказ ${s.min_order} ₽</span>`
+        : '';
+      const noContactBadge = !s.has_contact
+        ? `<span class="text-[10px] uppercase tracking-wider bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded ml-2" title="Нет в таблице «Контакты поставщиков»">нет в карточке</span>`
+        : '';
+      const card = document.createElement('div');
+      card.className = 'bg-white rounded-xl border border-slate-200 p-4 flex flex-col gap-3 hover:shadow-sm transition-shadow';
+      card.innerHTML = `
+        <div class="flex items-start gap-3">
+          <div class="w-10 h-10 rounded-lg ${bg} ${fg} flex items-center justify-center font-semibold text-lg flex-shrink-0">${_supplierInitial(s.name)}</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-slate-900 truncate" title="${s.name}">${s.name}${noContactBadge}</div>
+            <div class="text-xs text-slate-500 mt-0.5">${s.categories.length ? s.categories.join(' · ') : 'нет категорий'}</div>
+          </div>
+        </div>
+
+        <div class="border-t border-slate-100 pt-3 grid grid-cols-2 gap-2 text-xs">
+          <div>
+            <div class="text-slate-400 uppercase tracking-wider mb-0.5">Позиций</div>
+            <div class="font-semibold text-slate-900 text-base">${s.quotes_count}</div>
+          </div>
+          <div>
+            <div class="text-slate-400 uppercase tracking-wider mb-0.5">В Топ-1</div>
+            <div class="font-semibold text-emerald-700 text-base">${s.top1_count}</div>
+          </div>
+        </div>
+
+        <div class="border-t border-slate-100 pt-3">
+          <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">Контакт</div>
+          ${contactHtml}
+          <div class="text-sm mt-0.5">${phoneHtml}</div>
+        </div>
+
+        ${(s.min_order || s.comment) ? `
+        <div class="border-t border-slate-100 pt-3 space-y-2">
+          ${minOrderHtml}
+          ${s.comment ? `<div class="text-xs text-slate-600 leading-snug">${s.comment.replace(/</g, '&lt;')}</div>` : ''}
+        </div>` : ''}
+
+        <div class="border-t border-slate-100 pt-3 text-xs text-slate-400">
+          обновлено: ${updated}
+        </div>
       `;
-      tbody.appendChild(tr);
+      frag.appendChild(card);
     }
+    wrap.innerHTML = '';
+    wrap.appendChild(frag);
   }
+
+  async function refreshSupplierContacts() {
+    const resp = await fetch(`${API_BASE}/suppliers/contacts/refresh`, { method: 'POST' });
+    if (!resp.ok) {
+      alert('Не удалось обновить контакты: ' + resp.status);
+      return;
+    }
+    const r = await resp.json();
+    if (r.error) {
+      alert('Ошибка чтения таблицы «Контакты поставщиков»:\n' + r.error);
+      return;
+    }
+    // перезагрузим список
+    document.getElementById('page-suppliers').dataset.loaded = '';
+    await hydrateSuppliers();
+    alert(`Контакты обновлены: подгружено ${r.loaded} строк.`);
+  }
+  window.refreshSupplierContacts = refreshSupplierContacts;
 
   // ============ Карта позиций (Mapping) ============
   let MAPPING_CURRENT_CAT = null;
