@@ -499,7 +499,7 @@
       <div class="bg-white rounded-xl border border-slate-200 mb-4">
         <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
           <div>
-            <h3 class="font-semibold text-slate-900">Топ-2 рекомендации шефам</h3>
+            <h3 class="font-semibold text-slate-900">Топ-3 рекомендации шефам</h3>
             <p class="text-xs text-slate-500 mt-0.5">Обновляются автоматически из матриц поставщиков</p>
           </div>
           <div class="relative w-72">
@@ -531,6 +531,7 @@
               <th class="px-6 py-3 text-left">Группа</th>
               <th class="px-6 py-3 text-left">🥇 Лучшее предложение</th>
               <th class="px-6 py-3 text-left">🥈 Второй вариант</th>
+              <th class="px-6 py-3 text-left">🥉 Третий вариант</th>
               <th class="px-6 py-3 text-left">Δ цены</th>
               <th class="px-6 py-3"></th>
             </tr>
@@ -547,6 +548,7 @@
                 <div class="font-semibold text-slate-700">462 ₽</div>
                 <div class="text-xs text-slate-500">Восток-Запад</div>
               </td>
+              <td class="px-6 py-3.5"><span class="text-slate-300 text-xs">—</span></td>
               <td class="px-6 py-3.5"><span class="text-emerald-600 text-sm font-medium">−2.1%</span></td>
               <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
             </tr>
@@ -561,6 +563,7 @@
                 <div class="font-semibold text-slate-700">87 ₽/л</div>
                 <div class="text-xs text-slate-500">Метро Кэш</div>
               </td>
+              <td class="px-6 py-3.5"><span class="text-slate-300 text-xs">—</span></td>
               <td class="px-6 py-3.5"><span class="text-red-600 text-sm font-medium">+4.2%</span></td>
               <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
             </tr>
@@ -575,6 +578,7 @@
                 <div class="font-semibold text-slate-700">279 ₽/кг</div>
                 <div class="text-xs text-slate-500">ЕвроСиб-Трейд</div>
               </td>
+              <td class="px-6 py-3.5"><span class="text-slate-300 text-xs">—</span></td>
               <td class="px-6 py-3.5"><span class="text-slate-500 text-sm font-medium">0%</span></td>
               <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
             </tr>
@@ -592,6 +596,7 @@
                 <div class="font-semibold text-slate-700">2 510 ₽/кг</div>
                 <div class="text-xs text-slate-500">ТК УМАЙ</div>
               </td>
+              <td class="px-6 py-3.5"><span class="text-slate-300 text-xs">—</span></td>
               <td class="px-6 py-3.5"><span class="text-red-600 text-sm font-medium">+18%</span></td>
               <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
             </tr>
@@ -606,6 +611,7 @@
                 <div class="font-semibold text-slate-700">1 245 ₽/кг</div>
                 <div class="text-xs text-slate-500">ЮФС</div>
               </td>
+              <td class="px-6 py-3.5"><span class="text-slate-300 text-xs">—</span></td>
               <td class="px-6 py-3.5"><span class="text-emerald-600 text-sm font-medium">−3.4%</span></td>
               <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
             </tr>
@@ -620,6 +626,7 @@
                 <div class="font-semibold text-slate-700">1 050 ₽/кг</div>
                 <div class="text-xs text-slate-500">ЕвроСиб-Трейд</div>
               </td>
+              <td class="px-6 py-3.5"><span class="text-slate-300 text-xs">—</span></td>
               <td class="px-6 py-3.5"><span class="text-emerald-600 text-sm font-medium">−1.8%</span></td>
               <td class="px-6 py-3.5"><span class="text-amber-600 text-xs flex items-center gap-1"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>A</span></td>
             </tr>
@@ -634,6 +641,7 @@
                 <div class="font-semibold text-slate-700">1 540 ₽/кг</div>
                 <div class="text-xs text-slate-500">Регион-1</div>
               </td>
+              <td class="px-6 py-3.5"><span class="text-slate-300 text-xs">—</span></td>
               <td class="px-6 py-3.5"><span class="text-slate-500 text-sm font-medium">+0.3%</span></td>
               <td class="px-6 py-3.5"><span class="text-slate-400 text-xs">B</span></td>
             </tr>
@@ -1278,7 +1286,7 @@
 
   const titles = {
     dashboard: ['Главная', 'Дашборд'],
-    recommendations: ['Рекомендации', 'Топ-2 для шефов'],
+    recommendations: ['Рекомендации', 'Топ-3 для шефов'],
     summary: ['Сводная', 'Цены по всем поставщикам'],
     analysis: ['Анализ', 'Отклонения и переплаты'],
     prices: ['Динамика', 'История цен'],
@@ -1776,21 +1784,27 @@
         const arg = safe.replace(/'/g, "&#39;");
         return `<button type="button" onclick="gotoSupplier('${arg}')" class="text-xs text-indigo-600 hover:text-indigo-800 hover:underline text-left">${safe}</button>`;
       };
-      const t1Comment = item.top1.supplier_comment ? `<div class="text-[11px] text-slate-400 italic mt-0.5">${safeText(item.top1.supplier_comment)}</div>` : '';
-      const t2Comment = t2 && t2.supplier_comment ? `<div class="text-[11px] text-slate-400 italic mt-0.5">${safeText(t2.supplier_comment)}</div>` : '';
+      const commentLine = c => c ? `<div class="text-[11px] text-slate-400 italic mt-0.5">${safeText(c)}</div>` : '';
+      const t3 = item.top3;
       tr.innerHTML = `
         <td class="px-6 py-3.5 font-medium">${item.product}</td>
         <td class="px-6 py-3.5"><span class="text-xs bg-${color}-50 text-${color}-700 px-2 py-0.5 rounded">${item.category}</span></td>
         <td class="px-6 py-3.5">
           <div class="font-semibold text-slate-900">${item.top1.price.toFixed(2)} ${unit}</div>
           ${supLink(item.top1.supplier)}
-          ${t1Comment}
+          ${commentLine(item.top1.supplier_comment)}
         </td>
         <td class="px-6 py-3.5">
           ${t2 ? `<div class="font-semibold text-slate-700">${t2.price.toFixed(2)} ${unit}</div>
                   ${supLink(t2.supplier)}
-                  ${t2Comment}`
+                  ${commentLine(t2.supplier_comment)}`
                 : `<div class="text-xs text-slate-400 italic">только 1 поставщик</div>`}
+        </td>
+        <td class="px-6 py-3.5">
+          ${t3 ? `<div class="font-semibold text-slate-700">${t3.price.toFixed(2)} ${unit}</div>
+                  ${supLink(t3.supplier)}
+                  ${commentLine(t3.supplier_comment)}`
+                : `<div class="text-xs text-slate-400 italic">—</div>`}
         </td>
         <td class="px-6 py-3.5"><span class="${t2 ? 'text-emerald-600' : 'text-slate-400'} text-sm font-medium">${delta !== null ? '+' + delta + '%' : '—'}</span></td>
         <td class="px-6 py-3.5"><span class="text-slate-400 text-xs">${item.suppliers_count} пост.</span></td>

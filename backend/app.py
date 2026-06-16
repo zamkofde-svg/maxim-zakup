@@ -341,8 +341,10 @@ def get_top2(
     result = []
     for item in items_map.values():
         item["quotes"].sort(key=lambda x: x["price"])
-        top1 = item["quotes"][0]
-        top2 = item["quotes"][1] if len(item["quotes"]) > 1 else None
+        qs = item["quotes"]
+        top1 = qs[0]
+        top2 = qs[1] if len(qs) > 1 else None
+        top3 = qs[2] if len(qs) > 2 else None
         result.append({
             "product_id": item["product_id"],
             "product": item["product"],
@@ -350,7 +352,8 @@ def get_top2(
             "unit_type": item["unit_type"],
             "top1": top1,
             "top2": top2,
-            "suppliers_count": len(item["quotes"]),
+            "top3": top3,
+            "suppliers_count": len(qs),
         })
 
     # Сортировка: сплошной алфавитный список по наименованию (без учёта регистра).

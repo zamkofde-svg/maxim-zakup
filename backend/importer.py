@@ -49,7 +49,23 @@ NON_SUPPLIER_FILES = {
 }
 
 # Префиксы названий организаций — то, что начинается так, считаем матрицей поставщика
-SUPPLIER_PREFIXES = ("ООО ", "АО ", "ИП ", "ПАО ", "ЗАО ", "АО ")
+SUPPLIER_PREFIXES = ("ООО", "АО", "ИП", "ПАО", "ЗАО")
+
+
+def _is_supplier_filename(name: str) -> bool:
+    """Имя файла — это матрица поставщика, если оно начинается с организационно-правовой
+    формы и после неё идёт разделитель (пробел/кавычка/точка). Совпадает с логикой
+    sync_master_to_suppliers._is_supplier_file."""
+    s = name.strip()
+    for p in SUPPLIER_PREFIXES:
+        if len(s) <= len(p):
+            continue
+        if not s.startswith(p):
+            continue
+        next_ch = s[len(p)]
+        if next_ch in (" ", '"', '«', "'", "."):
+            return True
+    return False
 
 
 def discover_supplier_matrices(drive_dir: Path) -> list[tuple[str, Path]]:
@@ -59,7 +75,7 @@ def discover_supplier_matrices(drive_dir: Path) -> list[tuple[str, Path]]:
         name = path.name
         if name in NON_SUPPLIER_FILES:
             continue
-        if not any(name.startswith(p) for p in SUPPLIER_PREFIXES):
+        if not _is_supplier_filename(name):
             continue
         # Имя поставщика = имя файла без .xlsx
         supplier_name = name[:-len(".xlsx")]

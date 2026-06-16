@@ -60,7 +60,7 @@ NON_SUPPLIER_NAMES = {
     MASTER_FILENAME,
     "Карта сопоставлений", "Топ 2", "Сопоставление", "Сводная",
 }
-SUPPLIER_PREFIXES = ("ООО ", "АО ", "ИП ", "ПАО ", "ЗАО ")
+SUPPLIER_PREFIXES = ("ООО", "АО", "ИП", "ПАО", "ЗАО")
 
 
 # ========== WHITELIST ВКЛАДОК ПО ПОСТАВЩИКАМ ==========
@@ -115,9 +115,21 @@ def _list_files(drive) -> list[dict]:
 
 
 def _is_supplier_file(name: str) -> bool:
+    """Файл — это матрица поставщика, если имя начинается с организационно-правовой формы
+    («ООО», «АО», «ИП», «ПАО», «ЗАО») и после неё идёт разделитель: пробел, кавычка или точка.
+    Это ловит и стандартное «ООО Метро…», и нестандартное «ООО"АЙСБЕРГ 8"» (без пробела)."""
     if name in NON_SUPPLIER_NAMES:
         return False
-    return any(name.startswith(p) for p in SUPPLIER_PREFIXES)
+    s = (name or "").strip()
+    for p in SUPPLIER_PREFIXES:
+        if len(s) <= len(p):
+            continue
+        if not s.startswith(p):
+            continue
+        next_ch = s[len(p)]
+        if next_ch in (" ", '"', '«', "'", ".", " "):
+            return True
+    return False
 
 
 def _read_sheets(sheets, spreadsheet_id: str, sheet_titles: list[str]) -> dict[str, list[tuple[int, str, str]]]:
