@@ -1420,9 +1420,11 @@
   window.doLogout = doLogout;
 
   function applyRoleVisibility() {
-    // Шеф видит только: Анализ закупок + Рекомендации
+    // Шеф видит: Рекомендации (Топ-2), Анализ закупок, Поставщики (только для контактов).
+    // Из Топ-2 имя поставщика кликабельно — открывает вкладку «Поставщики» с фокусом
+    // на нужного, чтобы шеф мог сразу позвонить менеджеру.
     const isBuyer = CURRENT_USER && CURRENT_USER.role === 'buyer';
-    const chefAllowedPages = new Set(['analysis', 'recommendations']);
+    const chefAllowedPages = new Set(['analysis', 'recommendations', 'suppliers']);
 
     // Скрываем пункты меню
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -1769,6 +1771,11 @@
       const t2 = item.top2;
       const delta = t2 ? ((t2.price - item.top1.price) / item.top1.price * 100).toFixed(1) : null;
       const safeText = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const supLink = name => {
+        const safe = safeText(name);
+        const arg = safe.replace(/'/g, "&#39;");
+        return `<button type="button" onclick="gotoSupplier('${arg}')" class="text-xs text-indigo-600 hover:text-indigo-800 hover:underline text-left">${safe}</button>`;
+      };
       const t1Comment = item.top1.supplier_comment ? `<div class="text-[11px] text-slate-400 italic mt-0.5">${safeText(item.top1.supplier_comment)}</div>` : '';
       const t2Comment = t2 && t2.supplier_comment ? `<div class="text-[11px] text-slate-400 italic mt-0.5">${safeText(t2.supplier_comment)}</div>` : '';
       tr.innerHTML = `
@@ -1776,12 +1783,12 @@
         <td class="px-6 py-3.5"><span class="text-xs bg-${color}-50 text-${color}-700 px-2 py-0.5 rounded">${item.category}</span></td>
         <td class="px-6 py-3.5">
           <div class="font-semibold text-slate-900">${item.top1.price.toFixed(2)} ${unit}</div>
-          <div class="text-xs text-slate-500">${item.top1.supplier}</div>
+          ${supLink(item.top1.supplier)}
           ${t1Comment}
         </td>
         <td class="px-6 py-3.5">
           ${t2 ? `<div class="font-semibold text-slate-700">${t2.price.toFixed(2)} ${unit}</div>
-                  <div class="text-xs text-slate-500">${t2.supplier}</div>
+                  ${supLink(t2.supplier)}
                   ${t2Comment}`
                 : `<div class="text-xs text-slate-400 italic">только 1 поставщик</div>`}
         </td>
@@ -1854,6 +1861,38 @@
   // ============ Поставщики ============
   let _suppliersData = [];
   let _suppliersQuery = '';
+  let _focusedSupplierName = '';   // имя на котором надо подсветить карточку
+
+  /** Переход с Топ-2 на «Поставщики» с фокусом на конкретного поставщика.
+   *  Вызывается по клику на имени в строке Топ-2. */
+  async function gotoSupplier(name) {
+    _focusedSupplierName = name || '';
+    _suppliersQuery = (name || '').toLowerCase();
+    navigate('suppliers');
+    // navigate() триггерит ленивую hydrateSuppliers — но если уже загружено, надо обновить
+    if (document.getElementById('page-suppliers').dataset.loaded) {
+      // уже было загружено — просто перерисовать с новым фокусом и запросом
+      const sb = document.getElementById('suppliers-search');
+      if (sb) sb.value = name || '';
+      renderSuppliers();
+      _scrollToFocusedCard();
+    } else {
+      // hydrateSuppliers вызовется из navigate() — ждём её, потом скроллим
+      setTimeout(() => {
+        const sb = document.getElementById('suppliers-search');
+        if (sb) sb.value = name || '';
+        renderSuppliers();
+        _scrollToFocusedCard();
+      }, 400);
+    }
+  }
+  window.gotoSupplier = gotoSupplier;
+
+  function _scrollToFocusedCard() {
+    if (!_focusedSupplierName) return;
+    const card = document.querySelector(`#suppliers-cards [data-supplier-key="${_focusedSupplierName.toLowerCase()}"]`);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   async function hydrateSuppliers() {
     const data = await tryFetch(`${API_BASE}/suppliers`);
@@ -1940,7 +1979,10 @@
         ? `<span class="text-[10px] uppercase tracking-wider bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded ml-2" title="Нет в таблице «Контакты поставщиков»">нет в карточке</span>`
         : '';
       const card = document.createElement('div');
-      card.className = 'bg-white rounded-xl border border-slate-200 p-4 flex flex-col gap-3 hover:shadow-sm transition-shadow';
+      const isFocused = _focusedSupplierName && s.name === _focusedSupplierName;
+      card.className = 'bg-white rounded-xl border p-4 flex flex-col gap-3 hover:shadow-sm transition-shadow ' +
+        (isFocused ? 'border-indigo-500 ring-2 ring-indigo-100 shadow-md' : 'border-slate-200');
+      card.dataset.supplierKey = s.name.toLowerCase();
       card.innerHTML = `
         <div class="flex items-start gap-3">
           <div class="w-10 h-10 rounded-lg ${bg} ${fg} flex items-center justify-center font-semibold text-lg flex-shrink-0">${_supplierInitial(s.name)}</div>
