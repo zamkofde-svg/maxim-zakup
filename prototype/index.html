@@ -166,6 +166,17 @@
     <!-- ============ DASHBOARD ============ -->
     <div id="page-dashboard" class="page active p-8">
 
+      <!-- Плашка-алёрт: динамика цен за неделю -->
+      <div id="dashboard-prices-alert" class="hidden mb-4 bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-center gap-3 hover:bg-rose-100 cursor-pointer transition-colors"
+           onclick="navigate('prices')">
+        <i data-lucide="trending-up" class="w-5 h-5 text-rose-600 flex-shrink-0"></i>
+        <div class="flex-1">
+          <div class="font-semibold text-rose-900 text-sm" id="dashboard-prices-alert-title">—</div>
+          <div class="text-xs text-rose-800 mt-0.5" id="dashboard-prices-alert-sub">—</div>
+        </div>
+        <i data-lucide="chevron-right" class="w-4 h-4 text-rose-600"></i>
+      </div>
+
       <!-- Hero stats -->
       <div class="grid grid-cols-4 gap-4 mb-6">
         <div class="bg-white rounded-xl border border-slate-200 p-5">
@@ -863,73 +874,82 @@
       </div>
     </div>
 
-    <!-- ============ PRICES ============ -->
+    <!-- ============ PRICES (Динамика цен) ============ -->
     <div id="page-prices" class="page p-8">
-      <div class="bg-white rounded-xl border border-slate-200 p-6 mb-4">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h3 class="font-semibold text-slate-900">Динамика цены — Сыр Пармезан 36 мес</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Группа A · история по 4 поставщикам · 6 месяцев</p>
-          </div>
-          <select class="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm">
-            <option>Сыр Пармезан 36 мес</option>
-            <option>Йогурт TEOS</option>
-            <option>Говядина вырезка охл.</option>
-          </select>
+      <!-- Период + KPI -->
+      <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div id="prices-period-tabs" class="flex gap-2">
+          <!-- кнопки 7д/30д/90д рисуются JS -->
         </div>
-        <svg viewBox="0 0 800 280" class="w-full h-72">
-          <defs>
-            <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#ef4444" stop-opacity="0.15"/>
-              <stop offset="100%" stop-color="#ef4444" stop-opacity="0"/>
-            </linearGradient>
-          </defs>
-          <line x1="40" y1="40" x2="780" y2="40" stroke="#f1f5f9"/>
-          <line x1="40" y1="100" x2="780" y2="100" stroke="#f1f5f9"/>
-          <line x1="40" y1="160" x2="780" y2="160" stroke="#f1f5f9"/>
-          <line x1="40" y1="220" x2="780" y2="220" stroke="#f1f5f9"/>
-          <text x="32" y="44" fill="#94a3b8" font-size="10" text-anchor="end">2800</text>
-          <text x="32" y="104" fill="#94a3b8" font-size="10" text-anchor="end">2400</text>
-          <text x="32" y="164" fill="#94a3b8" font-size="10" text-anchor="end">2000</text>
-          <text x="32" y="224" fill="#94a3b8" font-size="10" text-anchor="end">1600</text>
-          <!-- max line (red dashed) -->
-          <polyline points="80,150 200,140 320,135 440,90 560,60 680,55 760,52" stroke="#ef4444" stroke-width="2" fill="none" stroke-dasharray="3,3"/>
-          <!-- avg -->
-          <path d="M80,180 L200,175 L320,165 L440,130 L560,100 L680,90 L760,82 L760,260 L80,260 Z" fill="url(#g2)"/>
-          <polyline points="80,180 200,175 320,165 440,130 560,100 680,90 760,82" stroke="#6366f1" stroke-width="2.5" fill="none"/>
-          <!-- min line (green) -->
-          <polyline points="80,210 200,205 320,200 440,170 560,140 680,130 760,118" stroke="#10b981" stroke-width="2" fill="none"/>
-          <!-- dots -->
-          <circle cx="80" cy="180" r="3" fill="#6366f1"/>
-          <circle cx="200" cy="175" r="3" fill="#6366f1"/>
-          <circle cx="320" cy="165" r="3" fill="#6366f1"/>
-          <circle cx="440" cy="130" r="3" fill="#6366f1"/>
-          <circle cx="560" cy="100" r="3" fill="#6366f1"/>
-          <circle cx="680" cy="90" r="3" fill="#6366f1"/>
-          <circle cx="760" cy="82" r="3" fill="#6366f1"/>
-          <text x="80" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Окт</text>
-          <text x="200" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Ноя</text>
-          <text x="320" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Дек</text>
-          <text x="440" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Янв</text>
-          <text x="560" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Фев</text>
-          <text x="680" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Мар</text>
-          <text x="760" y="275" fill="#94a3b8" font-size="10" text-anchor="middle">Апр</text>
-          <!-- alert -->
-          <circle cx="440" cy="130" r="8" fill="none" stroke="#ef4444" stroke-width="2"/>
-          <text x="450" y="125" fill="#ef4444" font-size="11" font-weight="600">+18% за месяц</text>
-        </svg>
-        <div class="mt-3 flex gap-6 text-sm">
-          <span class="flex items-center gap-2 text-slate-600"><span class="w-3 h-0.5 bg-red-500"></span>Макс на рынке</span>
-          <span class="flex items-center gap-2 text-slate-600"><span class="w-3 h-0.5 bg-indigo-500"></span>Средняя</span>
-          <span class="flex items-center gap-2 text-slate-600"><span class="w-3 h-0.5 bg-emerald-500"></span>Минимум (Топ-1)</span>
+        <div class="flex items-center gap-2">
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-400"></i>
+            <input id="prices-search" type="text" placeholder="Поиск по наименованию…"
+                   class="border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <button onclick="exportPriceChangesCsv()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            CSV
+          </button>
         </div>
       </div>
 
-      <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 flex gap-4">
-        <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"></i>
-        <div>
-          <div class="font-semibold text-amber-900">Аномальный рост цен — 3 позиции</div>
-          <div class="text-sm text-amber-800 mt-1">Сыр Пармезан 36 мес <span class="font-semibold">+18%</span>, Говядина вырезка <span class="font-semibold">+12%</span>, Лосось филе с/м <span class="font-semibold">+9%</span> за последний месяц. Рекомендуется переторг или замена поставщика.</div>
+      <!-- KPI -->
+      <div class="grid grid-cols-4 gap-4 mb-4">
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">Выросли</div>
+          <div class="text-3xl font-bold text-rose-600 mt-1" id="prices-kpi-ups">—</div>
+          <div class="text-xs text-slate-500 mt-1" id="prices-kpi-ups-sub">в среднем</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">Упали</div>
+          <div class="text-3xl font-bold text-emerald-600 mt-1" id="prices-kpi-downs">—</div>
+          <div class="text-xs text-slate-500 mt-1" id="prices-kpi-downs-sub">в среднем</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">Самый большой рост</div>
+          <div class="text-lg font-semibold text-slate-900 mt-1 truncate" id="prices-kpi-rise-name">—</div>
+          <div class="text-xs text-rose-600 font-medium mt-0.5" id="prices-kpi-rise-pct">—</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+          <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">Всего изменений</div>
+          <div class="text-3xl font-bold text-slate-900 mt-1" id="prices-kpi-total">—</div>
+          <div class="text-xs text-slate-500 mt-1" id="prices-kpi-last">последнее: —</div>
+        </div>
+      </div>
+
+      <!-- Таблица -->
+      <div class="bg-white rounded-xl border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 class="font-semibold text-slate-900">Что изменилось</h3>
+            <p class="text-xs text-slate-500 mt-0.5" id="prices-subtitle">…</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <div id="prices-dir-tabs" class="flex gap-1 bg-slate-100 rounded-lg p-1 text-xs">
+              <!-- 'все' / 'рост' / 'падение' -->
+            </div>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
+              <tr>
+                <th class="px-6 py-3 text-left">Товар</th>
+                <th class="px-6 py-3 text-left">Группа</th>
+                <th class="px-6 py-3 text-left">Поставщик</th>
+                <th class="px-6 py-3 text-right">Было</th>
+                <th class="px-6 py-3 text-right">Стало</th>
+                <th class="px-6 py-3 text-right">Δ ₽</th>
+                <th class="px-6 py-3 text-right cursor-pointer hover:text-slate-700" onclick="toggleSortPrices()">
+                  <span id="prices-sort-icon">Δ % ▼</span>
+                </th>
+                <th class="px-6 py-3 text-left">Когда</th>
+              </tr>
+            </thead>
+            <tbody id="prices-tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+          <div id="prices-empty" class="p-8 text-center text-sm text-slate-400 hidden">Нет изменений за выбранный период</div>
         </div>
       </div>
     </div>
@@ -1316,6 +1336,10 @@
       document.getElementById('page-summary').dataset.loaded = '1';
       hydrateSummary();
     }
+    if (page === 'prices' && !document.getElementById('page-prices').dataset.loaded) {
+      document.getElementById('page-prices').dataset.loaded = '1';
+      hydratePrices();
+    }
   }
 
   document.querySelectorAll('.nav-item').forEach(item => {
@@ -1484,6 +1508,9 @@
   let CURRENT_CATEGORY = null;  // null = все
 
   async function hydrateDashboard() {
+    // Плашка-алёрт «За неделю выросло N позиций» — асинхронно
+    _hydratePriceAlert();
+
     const summary = await tryFetch(`${API_BASE}/dashboard/summary`);
     if (!summary) return;
 
@@ -2038,6 +2065,269 @@
     wrap.innerHTML = '';
     wrap.appendChild(frag);
   }
+
+  async function _hydratePriceAlert() {
+    // За 7 дней: сколько подорожало и средний %. Если ничего — плашка скрыта.
+    const since = _isoSinceDays(7);
+    const s = await tryFetch(`${API_BASE}/price_changes/summary?since=${encodeURIComponent(since)}`);
+    const box = document.getElementById('dashboard-prices-alert');
+    if (!box) return;
+    if (!s || !s.ups || s.ups === 0) {
+      box.classList.add('hidden');
+      return;
+    }
+    document.getElementById('dashboard-prices-alert-title').textContent =
+      `За неделю выросло ${s.ups} ${_pluralPositions(s.ups)} · в среднем +${(s.avg_up_pct || 0).toFixed(1)}%`;
+    const r = s.biggest_rise;
+    document.getElementById('dashboard-prices-alert-sub').textContent =
+      r ? `Самый большой рост: ${r.product} (+${(r.delta_pct || 0).toFixed(1)}% у ${r.supplier})` : 'Открыть «Динамика цен» →';
+    box.classList.remove('hidden');
+  }
+
+  function _pluralPositions(n) {
+    const mod10 = n % 10, mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'позиция';
+    if ([2,3,4].includes(mod10) && ![12,13,14].includes(mod100)) return 'позиции';
+    return 'позиций';
+  }
+
+  // ============ Динамика цен ============
+  let _pricesPeriod = 7;          // 7 / 30 / 90 дней
+  let _pricesDirection = 'all';   // all | up | down
+  let _pricesQuery = '';
+  let _pricesSort = 'delta_pct';  // delta_pct | changed_at
+  let _pricesChanges = [];        // последняя выборка
+
+  const PERIOD_LABELS = [
+    {days: 7,  label: '7 дней'},
+    {days: 30, label: '30 дней'},
+    {days: 90, label: '3 месяца'},
+  ];
+
+  async function hydratePrices() {
+    _renderPricesPeriodTabs();
+    _renderPricesDirTabs();
+    const sb = document.getElementById('prices-search');
+    if (sb && !sb._wired) {
+      sb._wired = true;
+      let t = null;
+      sb.addEventListener('input', e => {
+        _pricesQuery = e.target.value.trim();
+        clearTimeout(t); t = setTimeout(loadPrices, 250);
+      });
+    }
+    await loadPrices();
+  }
+
+  function _renderPricesPeriodTabs() {
+    const wrap = document.getElementById('prices-period-tabs');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    for (const p of PERIOD_LABELS) {
+      const btn = document.createElement('button');
+      const active = (p.days === _pricesPeriod);
+      btn.className = 'px-4 py-2 rounded-lg text-sm font-medium ' +
+        (active ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50');
+      btn.textContent = p.label;
+      btn.addEventListener('click', async () => {
+        _pricesPeriod = p.days;
+        _renderPricesPeriodTabs();
+        await loadPrices();
+      });
+      wrap.appendChild(btn);
+    }
+  }
+
+  function _renderPricesDirTabs() {
+    const wrap = document.getElementById('prices-dir-tabs');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const items = [
+      {key: 'all',  label: 'Все'},
+      {key: 'up',   label: 'Рост'},
+      {key: 'down', label: 'Падение'},
+    ];
+    for (const it of items) {
+      const btn = document.createElement('button');
+      const active = (it.key === _pricesDirection);
+      btn.className = 'px-3 py-1 rounded-md font-medium ' +
+        (active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900');
+      btn.textContent = it.label;
+      btn.addEventListener('click', async () => {
+        _pricesDirection = it.key;
+        _renderPricesDirTabs();
+        await loadPrices();
+      });
+      wrap.appendChild(btn);
+    }
+  }
+
+  function _isoSinceDays(days) {
+    const d = new Date(Date.now() - days * 86400 * 1000);
+    return d.toISOString().replace(/\.\d+Z$/, '');
+  }
+
+  async function loadPrices() {
+    const since = _isoSinceDays(_pricesPeriod);
+    const q = new URLSearchParams({
+      since,
+      direction: _pricesDirection,
+      sort: _pricesSort,
+      limit: '500',
+    });
+    if (_pricesQuery) q.set('search', _pricesQuery);
+
+    const [changes, summary] = await Promise.all([
+      tryFetch(`${API_BASE}/price_changes?${q}`),
+      tryFetch(`${API_BASE}/price_changes/summary?since=${encodeURIComponent(since)}`),
+    ]);
+    _pricesChanges = changes || [];
+    _renderPricesKpi(summary || {});
+    _renderPricesTable();
+  }
+
+  function _renderPricesKpi(s) {
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    set('prices-kpi-ups', s.ups || 0);
+    set('prices-kpi-ups-sub', s.ups ? `в среднем +${(s.avg_up_pct || 0).toFixed(1)}%` : 'нет');
+    set('prices-kpi-downs', s.downs || 0);
+    set('prices-kpi-downs-sub', s.downs ? `в среднем ${(s.avg_down_pct || 0).toFixed(1)}%` : 'нет');
+    set('prices-kpi-total', s.total || 0);
+    set('prices-kpi-last', s.last_change_at ? `последнее: ${fmtTime(s.last_change_at)}` : 'нет изменений');
+    const r = s.biggest_rise;
+    set('prices-kpi-rise-name', r ? r.product : '—');
+    set('prices-kpi-rise-pct', r ? `+${(r.delta_pct || 0).toFixed(1)}% · ${r.supplier}` : '—');
+  }
+
+  function _renderPricesTable() {
+    const tbody = document.getElementById('prices-tbody');
+    const empty = document.getElementById('prices-empty');
+    const sub = document.getElementById('prices-subtitle');
+    const sortIcon = document.getElementById('prices-sort-icon');
+    if (sortIcon) sortIcon.textContent = `Δ % ${_pricesSort === 'delta_pct' ? '▼' : ' '}`;
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    sub.textContent = `${_pricesChanges.length} изменений за ${_pricesPeriod} дн.`;
+    if (!_pricesChanges.length) {
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const fmtCur = n => (n == null ? '—' : n.toFixed(2));
+    const frag = document.createDocumentFragment();
+    for (const c of _pricesChanges) {
+      const tr = document.createElement('tr');
+      const isUp = c.delta_pct > 0;
+      const pctCls = isUp ? 'text-rose-600' : (c.delta_pct < 0 ? 'text-emerald-600' : 'text-slate-500');
+      const rubCls = pctCls;
+      tr.className = 'hover:bg-slate-50 cursor-pointer';
+      const deltaRub = (c.new_price - c.old_price);
+      const supArg = safe(c.supplier).replace(/'/g, "&#39;");
+      tr.innerHTML = `
+        <td class="px-6 py-3 font-medium">${safe(c.product)}</td>
+        <td class="px-6 py-3 text-slate-500 text-xs">${safe(c.category)}</td>
+        <td class="px-6 py-3"><button class="text-xs text-indigo-600 hover:underline text-left" onclick="event.stopPropagation(); gotoSupplier('${supArg}')">${safe(c.supplier)}</button></td>
+        <td class="px-6 py-3 text-right text-slate-500">${fmtCur(c.old_price)}</td>
+        <td class="px-6 py-3 text-right font-semibold">${fmtCur(c.new_price)}</td>
+        <td class="px-6 py-3 text-right font-medium ${rubCls}">${deltaRub > 0 ? '+' : ''}${deltaRub.toFixed(2)}</td>
+        <td class="px-6 py-3 text-right font-semibold ${pctCls}">${c.delta_pct > 0 ? '+' : ''}${(c.delta_pct || 0).toFixed(1)}%</td>
+        <td class="px-6 py-3 text-slate-500 text-xs">${fmtTime(c.changed_at)}</td>
+      `;
+      tr.addEventListener('click', () => toggleHistoryRow(tr, c));
+      frag.appendChild(tr);
+    }
+    tbody.appendChild(frag);
+  }
+
+  function toggleSortPrices() {
+    _pricesSort = _pricesSort === 'delta_pct' ? 'changed_at' : 'delta_pct';
+    loadPrices();
+  }
+  window.toggleSortPrices = toggleSortPrices;
+
+  /** Раскрытие мини-графика истории цены под строкой. */
+  async function toggleHistoryRow(tr, c) {
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains('history-row')) {
+      next.remove();
+      return;
+    }
+    // Закрыть другие открытые
+    document.querySelectorAll('#prices-tbody tr.history-row').forEach(r => r.remove());
+
+    const expand = document.createElement('tr');
+    expand.className = 'history-row bg-slate-50';
+    expand.innerHTML = `<td colspan="8" class="px-6 py-4"><div class="text-xs text-slate-500">Загрузка истории…</div></td>`;
+    tr.after(expand);
+
+    const data = await tryFetch(`${API_BASE}/price_history?supplier_id=${c.supplier_id}&product_id=${c.product_id}&days=90`);
+    expand.querySelector('td').innerHTML = _renderMiniChart(c, data || []);
+  }
+
+  function _renderMiniChart(c, points) {
+    if (!points.length) {
+      return `<div class="text-xs text-slate-500">Истории нет — это первая запись цены.</div>`;
+    }
+    const W = 800, H = 160, padL = 50, padR = 16, padT = 18, padB = 28;
+    const xs = points.map(p => new Date(p.date).getTime());
+    const ys = points.map(p => p.price);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const xRange = (xMax - xMin) || 1;
+    const yRange = (yMax - yMin) || 1;
+    const sx = x => padL + (W - padL - padR) * (x - xMin) / xRange;
+    const sy = y => padT + (H - padT - padB) * (1 - (y - yMin) / yRange);
+    const path = points.map((p, i) => `${i ? 'L' : 'M'}${sx(xs[i]).toFixed(1)},${sy(p.price).toFixed(1)}`).join(' ');
+    const dots = points.map((p, i) => `<circle cx="${sx(xs[i]).toFixed(1)}" cy="${sy(p.price).toFixed(1)}" r="2.5" fill="#6366f1"/>`).join('');
+    const fmtD = ts => { const d = new Date(ts); return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth()+1).padStart(2,'0')}`; };
+    const xLabels = [xMin, (xMin+xMax)/2, xMax]
+      .map(t => `<text x="${sx(t).toFixed(1)}" y="${H - 8}" font-size="10" fill="#94a3b8" text-anchor="middle">${fmtD(t)}</text>`).join('');
+    const yLabels = [yMax, (yMax+yMin)/2, yMin]
+      .map(v => `<text x="${padL - 6}" y="${sy(v) + 3}" font-size="10" fill="#94a3b8" text-anchor="end">${v.toFixed(0)}</text>`).join('');
+    return `
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-xs text-slate-600">История цены: <b>${(c.product || '').replace(/[<>]/g,'')}</b> · <span class="text-slate-500">${(c.supplier || '').replace(/[<>]/g,'')}</span></div>
+        <div class="text-xs text-slate-400">${points.length} точек за 90 дней</div>
+      </div>
+      <svg viewBox="0 0 ${W} ${H}" class="w-full" style="max-height:200px">
+        <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#e2e8f0"/>
+        <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#e2e8f0"/>
+        ${yLabels}
+        ${xLabels}
+        <path d="${path}" stroke="#6366f1" stroke-width="2" fill="none"/>
+        ${dots}
+      </svg>
+    `;
+  }
+
+  function exportPriceChangesCsv() {
+    if (!_pricesChanges.length) { alert('Нет данных для экспорта'); return; }
+    const esc = v => {
+      if (v == null) return '';
+      const s = String(v);
+      return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const head = ['Товар', 'Группа', 'Поставщик', 'Было', 'Стало', 'Δ ₽', 'Δ %', 'Когда'];
+    const lines = [head.map(esc).join(';')];
+    for (const c of _pricesChanges) {
+      lines.push([
+        c.product, c.category, c.supplier,
+        c.old_price, c.new_price,
+        (c.new_price - c.old_price).toFixed(2),
+        (c.delta_pct || 0).toFixed(2),
+        c.changed_at,
+      ].map(esc).join(';'));
+    }
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `динамика_цен_${_pricesPeriod}д_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  window.exportPriceChangesCsv = exportPriceChangesCsv;
 
   async function refreshSupplierContacts() {
     const resp = await fetch(`${API_BASE}/suppliers/contacts/refresh`, { method: 'POST' });
@@ -2606,7 +2896,7 @@
 
   // ============ Скрытие неготовых страниц ============
   function hideNotReadyPages() {
-    for (const pageId of ['prices', 'inflation']) {
+    for (const pageId of ['inflation']) {
       const navItem = document.querySelector(`[data-page="${pageId}"]`);
       if (!navItem || navItem.dataset.soonBadged === '1') continue;
       navItem.dataset.soonBadged = '1';

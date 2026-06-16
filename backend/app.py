@@ -942,9 +942,13 @@ def periods(db: Session = Depends(get_db)):
 def list_price_changes(
     db: Session = Depends(get_db),
     since: Optional[str] = Query(None, description="ISO datetime; default — последние 7 дней"),
-    limit: int = 200,
+    direction: str = Query("all", description="all | up | down"),
+    category: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, description="Поиск по наименованию"),
+    sort: str = Query("changed_at", description="changed_at | delta_pct"),
+    limit: int = 500,
 ):
-    """Реальные изменения цен (не snapshot'ы). Сортировка: свежее сверху."""
+    """Реальные изменения цен (не snapshot'ы). По умолчанию — свежее сверху."""
     from datetime import timedelta
     if since:
         try:
@@ -954,19 +958,45 @@ def list_price_changes(
     else:
         since_dt = datetime.utcnow() - timedelta(days=7)
 
-    rows = db.execute(
+    q = (
         select(PriceChange, Supplier, ProductMaster, Category)
         .join(Supplier, Supplier.id == PriceChange.supplier_id)
         .join(ProductMaster, ProductMaster.id == PriceChange.product_master_id)
         .join(Category, Category.id == ProductMaster.category_id)
         .where(PriceChange.changed_at >= since_dt)
-        .order_by(desc(PriceChange.changed_at))
-        .limit(limit)
-    ).all()
+        # Отсечь «фантомные» изменения: цены ниже 1₽ — это раньше парсер брал
+        # мусор (фасовку, упаковку) из не той колонки. Сейчас парсер строгий,
+        # но в истории остались такие фейки. Также скрываем delta_pct > 500%
+        # — реальный рост цены так не происходит, это след старого мусора.
+        # Жёсткий фильтр: цены меньше 2₽ — заведомо парсерный мусор (фасовка,
+        # упаковка, единичка из старого шаблона). Реальные продукты столько
+        # не стоят. Также |Δ%| ≤ 90% — реальное изменение цены за пару
+        # месяцев не бывает больше; всё что выше — артефакт смены колонки.
+        .where(PriceChange.old_price >= 2)
+        .where(PriceChange.new_price >= 2)
+        .where(func.abs(PriceChange.delta_pct) <= 90)
+    )
+    if direction == "up":
+        q = q.where(PriceChange.delta_pct > 0)
+    elif direction == "down":
+        q = q.where(PriceChange.delta_pct < 0)
+    if category:
+        q = q.where(Category.name == category)
+    if search:
+        like = f"%{search.lower()}%"
+        q = q.where(func.lower(ProductMaster.name).like(like))
+
+    if sort == "delta_pct":
+        q = q.order_by(desc(func.abs(PriceChange.delta_pct)))
+    else:
+        q = q.order_by(desc(PriceChange.changed_at))
+    rows = db.execute(q.limit(limit)).all()
     return [
         {
             "id": pc.id,
+            "supplier_id": s.id,
             "supplier": s.name,
+            "product_id": pm.id,
             "product": pm.name,
             "category": cat.name,
             "old_price": pc.old_price,
@@ -975,6 +1005,29 @@ def list_price_changes(
             "changed_at": pc.changed_at.isoformat(),
         }
         for pc, s, pm, cat in rows
+    ]
+
+
+@app.get("/api/price_history")
+def get_price_history(
+    db: Session = Depends(get_db),
+    supplier_id: int = Query(...),
+    product_id: int = Query(...),
+    days: int = Query(90, ge=1, le=730),
+):
+    """История цен по конкретной паре (поставщик, товар) для мини-графика."""
+    from datetime import timedelta
+    since_dt = datetime.utcnow() - timedelta(days=days)
+    rows = db.execute(
+        select(PriceHistory)
+        .where(PriceHistory.supplier_id == supplier_id)
+        .where(PriceHistory.product_master_id == product_id)
+        .where(PriceHistory.captured_at >= since_dt)
+        .order_by(PriceHistory.captured_at)
+    ).scalars().all()
+    return [
+        {"date": h.captured_at.date().isoformat(), "price": h.unit_price}
+        for h in rows
     ]
 
 
@@ -998,6 +1051,15 @@ def price_changes_summary(
         .join(Supplier, Supplier.id == PriceChange.supplier_id)
         .join(ProductMaster, ProductMaster.id == PriceChange.product_master_id)
         .where(PriceChange.changed_at >= since_dt)
+        # Те же фильтры что и в списке: убрать фейковые «миллионные» дельты
+        # из старой истории парсера.
+        # Жёсткий фильтр: цены меньше 2₽ — заведомо парсерный мусор (фасовка,
+        # упаковка, единичка из старого шаблона). Реальные продукты столько
+        # не стоят. Также |Δ%| ≤ 90% — реальное изменение цены за пару
+        # месяцев не бывает больше; всё что выше — артефакт смены колонки.
+        .where(PriceChange.old_price >= 2)
+        .where(PriceChange.new_price >= 2)
+        .where(func.abs(PriceChange.delta_pct) <= 90)
         .order_by(desc(PriceChange.changed_at))
     ).all()
 
@@ -1022,6 +1084,7 @@ def price_changes_summary(
 
     last_ts = rows[0][0].changed_at.isoformat() if rows else None
 
+    biggest_rise = serialize(top_ups[:1])[0] if top_ups else None
     return {
         "since": since_dt.isoformat(),
         "total": total,
@@ -1031,6 +1094,7 @@ def price_changes_summary(
         "avg_down_pct": round(avg_down, 2),
         "top_ups": serialize(top_ups),
         "top_downs": serialize(top_downs),
+        "biggest_rise": biggest_rise,
         "last_change_at": last_ts,
     }
 

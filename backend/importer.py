@@ -327,13 +327,20 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
                     supplier_id=sup.id, product_master_id=pm.id,
                     unit_price=existing.unit_price, captured_at=existing.captured_at,
                 ))
-                # Фиксируем РЕАЛЬНОЕ изменение цены в audit-таблице
-                delta_pct = ((q.unit_price - existing.unit_price) / existing.unit_price * 100) if existing.unit_price else 0
-                db.add(PriceChange(
-                    supplier_id=sup.id, product_master_id=pm.id,
-                    old_price=existing.unit_price, new_price=q.unit_price,
-                    delta_pct=delta_pct, changed_at=now,
-                ))
+                # Фиксируем РЕАЛЬНОЕ изменение цены в audit-таблице —
+                # ТОЛЬКО если единица измерения та же. Если поставщик переключился
+                # с цены за упаковку на цену за кг — это разные числа, в PriceChange
+                # их сравнивать нельзя (получим фейковые «-90%» / «+400%»).
+                same_unit = (existing.unit_type == q.unit_type)
+                if same_unit and existing.unit_price and existing.unit_price >= 2 and q.unit_price >= 2:
+                    delta_pct = (q.unit_price - existing.unit_price) / existing.unit_price * 100
+                    # Защита от заведомо аномальных скачков — это след старого мусора
+                    if abs(delta_pct) <= 200:
+                        db.add(PriceChange(
+                            supplier_id=sup.id, product_master_id=pm.id,
+                            old_price=existing.unit_price, new_price=q.unit_price,
+                            delta_pct=delta_pct, changed_at=now,
+                        ))
                 existing.unit_price = q.unit_price
                 existing.pkg_net = q.pkg_net
                 existing.pkg_gross = q.pkg_gross
