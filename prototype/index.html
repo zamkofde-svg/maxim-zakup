@@ -931,6 +931,9 @@
             </div>
           </div>
         </div>
+        <div id="prices-cat-tabs" class="px-6 py-3 border-b border-slate-100 flex flex-wrap gap-2">
+          <!-- пилюли категорий рисуются JS -->
+        </div>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
@@ -2094,6 +2097,7 @@
   // ============ Динамика цен ============
   let _pricesPeriod = 7;          // 7 / 30 / 90 дней
   let _pricesDirection = 'all';   // all | up | down
+  let _pricesCategory = '';       // '' = все
   let _pricesQuery = '';
   let _pricesSort = 'delta_pct';  // delta_pct | changed_at
   let _pricesChanges = [];        // последняя выборка
@@ -2107,6 +2111,7 @@
   async function hydratePrices() {
     _renderPricesPeriodTabs();
     _renderPricesDirTabs();
+    await _renderPricesCategoryTabs();
     const sb = document.getElementById('prices-search');
     if (sb && !sb._wired) {
       sb._wired = true;
@@ -2117,6 +2122,27 @@
       });
     }
     await loadPrices();
+  }
+
+  async function _renderPricesCategoryTabs() {
+    const wrap = document.getElementById('prices-cat-tabs');
+    if (!wrap) return;
+    const cats = await loadCategories();
+    wrap.innerHTML = '';
+    const items = [{name: '', label: 'Все'}, ...cats.map(c => ({name: c.name, label: c.name}))];
+    for (const it of items) {
+      const btn = document.createElement('button');
+      const active = (it.name === _pricesCategory);
+      btn.className = 'px-3 py-1.5 rounded-full text-xs font-medium ' +
+        (active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
+      btn.textContent = it.label;
+      btn.addEventListener('click', () => {
+        _pricesCategory = it.name;
+        _renderPricesCategoryTabs();
+        loadPrices();
+      });
+      wrap.appendChild(btn);
+    }
   }
 
   function _renderPricesPeriodTabs() {
@@ -2176,6 +2202,7 @@
       limit: '500',
     });
     if (_pricesQuery) q.set('search', _pricesQuery);
+    if (_pricesCategory) q.set('category', _pricesCategory);
 
     const [changes, summary] = await Promise.all([
       tryFetch(`${API_BASE}/price_changes?${q}`),
