@@ -77,7 +77,10 @@ def download_file(service, file_id: str, name: str, mime: str, out_path: Path) -
     return len(data)
 
 
-FACTS_SUBFOLDER_NAME = "Факты iiko-SH"
+# Папки, в которых лежат выгрузки фактов (iiko / StoreHouse).
+# Заказчик называет по-разному в разных проектах — поддерживаем все варианты.
+FACTS_SUBFOLDER_NAMES = ("Выгрузка", "Выгрузки", "Факты iiko-SH")
+FACTS_SUBFOLDER_NAME = FACTS_SUBFOLDER_NAMES[0]  # для совместимости
 FACTS_OUT_DIR = OUT_DIR / "facts"
 
 
@@ -101,10 +104,10 @@ def sync():
     ).execute()
     all_items = resp.get("files", [])
 
-    # Находим подпапку «Факты iiko-SH»
+    # Находим подпапку с выгрузками фактов (под любым из принятых имён)
     facts_folder = next(
         (f for f in all_items
-         if f["mimeType"] == "application/vnd.google-apps.folder" and f["name"] == FACTS_SUBFOLDER_NAME),
+         if f["mimeType"] == "application/vnd.google-apps.folder" and f["name"] in FACTS_SUBFOLDER_NAMES),
         None
     )
     facts_folder_id = facts_folder["id"] if facts_folder else None

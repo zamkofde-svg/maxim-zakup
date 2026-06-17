@@ -127,10 +127,130 @@ def parse_storehouse(path: str | Path) -> list[PurchaseFact]:
     return facts
 
 
+def parse_storehouse_xlsx(path: str | Path) -> list[PurchaseFact]:
+    """Парсер новой выгрузки SH — настоящий xlsx (не XML), лист 'Документ'.
+
+    Структура (на основании файла «Движение группы товаров»):
+      r1: 'Накладная' (мерж по A..E), 'Кол-во' в F, 'Цена' в G, 'Сумма в/н' в H
+      r2: подшапка: Тип | Номер | Дата | Поставщик | Получатель | None | None | None
+      r3+: блоки по товарам:
+        строка с названием товара в A (вида '*Название')
+        строки-документы: Тип | Номер | Дата | Поставщик | Получатель | Кол-во | Цена | Сумма
+        строка 'Итого:' — пропускаем
+    """
+    from openpyxl import load_workbook
+    path = Path(path)
+    wb = load_workbook(path, data_only=True)
+    if "Документ" not in wb.sheetnames:
+        return []
+    ws = wb["Документ"]
+
+    facts: list[PurchaseFact] = []
+    current_product: str | None = None
+    for r in range(1, ws.max_row + 1):
+        a = ws.cell(r, 1).value
+        b = ws.cell(r, 2).value
+        c = ws.cell(r, 3).value
+        d = ws.cell(r, 4).value
+        e = ws.cell(r, 5).value
+        f = ws.cell(r, 6).value
+        g = ws.cell(r, 7).value
+        h = ws.cell(r, 8).value
+
+        # Строка-заголовок товара: в A текст, остальные пустые
+        if a and not b and not c and not f and not g:
+            s = str(a).strip()
+            if not s:
+                continue
+            if s.lower().startswith("итого") or s.lower().startswith("накладная"):
+                continue
+            # «*Название» → срезаем звезду
+            current_product = s[1:].strip() if s.startswith("*") else s
+            continue
+
+        # Строка-документ: тип 'п/н' или 'нкл' и есть дата + цена
+        if a and str(a).strip().lower() in ("п/н", "нкл", "пн") and isinstance(c, (str,)):
+            # Дата строкой 'дд.мм.гггг'
+            from datetime import datetime as _dt
+            try:
+                dt = _dt.strptime(str(c).strip()[:10], "%d.%m.%Y")
+            except Exception:
+                continue
+            sup = (d or "").strip() if d else ""
+            rest = (e or "").strip() if e else None
+            try:
+                qty = float(f) if f is not None else 0
+                price = float(g) if g is not None else 0
+                total = float(h) if h is not None else qty * price
+            except (TypeError, ValueError):
+                continue
+            if not current_product or not sup or price <= 0:
+                continue
+            facts.append(PurchaseFact(
+                source="storehouse",
+                source_file=path.name,
+                group=None,
+                product=current_product,
+                date=dt.strftime("%Y-%m-%d"),
+                supplier=sup,
+                restaurant=rest,
+                quantity=qty,
+                unit_price=price,
+                total=total,
+                row=r,
+            ))
+        elif a and isinstance(c, (object,)) and hasattr(c, 'strftime'):
+            # Дата может быть datetime (если экспорт сохранил тип)
+            from datetime import datetime as _dt
+            dt = c
+            sup = (d or "").strip() if d else ""
+            rest = (e or "").strip() if e else None
+            try:
+                qty = float(f) if f is not None else 0
+                price = float(g) if g is not None else 0
+                total = float(h) if h is not None else qty * price
+            except (TypeError, ValueError):
+                continue
+            if not current_product or not sup or price <= 0:
+                continue
+            facts.append(PurchaseFact(
+                source="storehouse",
+                source_file=path.name,
+                group=None,
+                product=current_product,
+                date=dt.strftime("%Y-%m-%d"),
+                supplier=sup,
+                restaurant=rest,
+                quantity=qty,
+                unit_price=price,
+                total=total,
+                row=r,
+            ))
+
+    return facts
+
+
+def parse_storehouse_any(path: str | Path) -> list[PurchaseFact]:
+    """Автоопределение: XML-формат (SH3-SH4 классический) или xlsx (новый)."""
+    path = Path(path)
+    with open(path, "rb") as fh:
+        head = fh.read(4)
+    if head.startswith(b"<?xm"):
+        return parse_storehouse(path)
+    # Это xlsx (zip-архив, начинается с 'PK')
+    if head.startswith(b"PK"):
+        return parse_storehouse_xlsx(path)
+    # Попробуем оба
+    try:
+        return parse_storehouse_xlsx(path)
+    except Exception:
+        return parse_storehouse(path)
+
+
 def main():
     import sys
     path = sys.argv[1] if len(sys.argv) > 1 else "../sample-data/iiko_or_sh_1.xls"
-    facts = parse_storehouse(path)
+    facts = parse_storehouse_any(path)
 
     print(f"=== StoreHouse: {path} ===")
     print(f"Записей закупок: {len(facts)}")

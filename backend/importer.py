@@ -31,7 +31,7 @@ from backend.models import (
 from parse_supplier_matrix import parse as parse_matrix
 from parse_mapping import parse as parse_mapping
 from parse_fact_iiko import parse_iiko
-from parse_fact_storehouse import parse_storehouse
+from parse_fact_storehouse import parse_storehouse, parse_storehouse_any
 
 
 import os
@@ -83,13 +83,28 @@ def discover_supplier_matrices(drive_dir: Path) -> list[tuple[str, Path]]:
     return result
 
 def detect_fact_format(path: Path) -> str:
-    """Авто-детект формата выгрузки факта по содержимому файла.
-    StoreHouse экспортит XML с расширением .xls, iiko — настоящий xlsx.
+    """Авто-детект формата выгрузки факта.
+
+    Различаем 3 случая:
+      - XML SpreadsheetML (.xls на самом деле XML, классический SH) → 'storehouse'
+      - xlsx с листом «Документ» (новый xlsx-экспорт SH «Движение группы товаров») → 'storehouse'
+      - xlsx с другой структурой → 'iiko' (Отчёт о закупках / Отчёт о закупочных ценах)
     """
+    # Заголовок файла
     with open(path, "rb") as f:
-        head = f.read(200)
-    if head.startswith(b"<?xml") or b"spreadsheet" in head[:200].lower():
+        head = f.read(8)
+    if head.startswith(b"<?xml") or b"spreadsheet" in head[:8].lower():
         return "storehouse"
+    if head.startswith(b"PK"):  # zip-архив → xlsx
+        # Открыть и посмотреть имена листов: «Документ» → SH-xlsx
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(path, read_only=True, data_only=True)
+            if "Документ" in wb.sheetnames:
+                return "storehouse"
+        except Exception:
+            pass
+        return "iiko"
     return "iiko"
 
 
@@ -511,7 +526,8 @@ def import_facts(db: Session) -> dict:
             if spec["format"] == "iiko":
                 facts = parse_iiko(spec["path"])
             else:
-                facts = parse_storehouse(spec["path"])
+                # parse_storehouse_any сам выберет xlsx vs XML
+                facts = parse_storehouse_any(spec["path"])
             print(f"   → {spec['path'].name} ({spec['format']}): {len(facts)} записей")
         except Exception as e:
             print(f"   ⚠ {spec['path'].name} ({spec['format']}): ошибка {type(e).__name__}: {e}")
