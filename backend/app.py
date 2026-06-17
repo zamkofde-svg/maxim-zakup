@@ -983,8 +983,11 @@ def list_price_changes(
     if category:
         q = q.where(Category.name == category)
     if search:
-        like = f"%{search.lower()}%"
-        q = q.where(func.lower(ProductMaster.name).like(like))
+        # SQLite LOWER не lowercase'ит кириллицу — используем name_normalized
+        # (нормализованное Python'ом ещё при импорте мастер-матрицы).
+        from backend.importer import normalize as _norm_search
+        like = f"%{_norm_search(search)}%"
+        q = q.where(ProductMaster.name_normalized.like(like))
 
     if sort == "delta_pct":
         q = q.order_by(desc(func.abs(PriceChange.delta_pct)))
