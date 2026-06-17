@@ -1049,6 +1049,19 @@
         </div>
       </div>
 
+      <!-- Авто-сопоставления -->
+      <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-5 mb-4 flex items-center gap-4">
+        <i data-lucide="zap" class="w-5 h-5 text-emerald-600 flex-shrink-0"></i>
+        <div class="flex-1">
+          <div class="font-semibold text-emerald-900">Автоматические сопоставления</div>
+          <div class="text-sm text-emerald-800 mt-0.5">Система предложит наиболее похожие мастер-позиции для нераспознанных названий. Подтверждённые сопоставления записываются и в БД, и в Google Sheets «Карта сопоставлений» (отдельная вкладка «Авто-сопоставления»).</div>
+        </div>
+        <button onclick="openMappingSuggestModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap flex items-center gap-2 buyer-only">
+          <i data-lucide="sparkles" class="w-4 h-4"></i>
+          Предложить сопоставления
+        </button>
+      </div>
+
       <!-- Нераспознанные позиции -->
       <div class="bg-white rounded-xl border border-slate-200 mb-4">
         <div class="px-6 py-4 border-b border-slate-100">
@@ -2373,6 +2386,206 @@
     alert(`Контакты обновлены: подгружено ${r.loaded} строк.`);
   }
   window.refreshSupplierContacts = refreshSupplierContacts;
+
+  // ============ Авто-сопоставления (этап 2) ============
+  let _mappingSuggestData = [];   // [{id, raw_name, source, occurrence_count, candidates}]
+  let _mappingMasterList = [];    // [{id, name, category}]
+  let _mappingSelectedMaster = {};// {unmapped_id: master_product_id}
+  let _mappingChecked = {};       // {unmapped_id: bool}
+
+  async function openMappingSuggestModal() {
+    // Подгружаем мастер-позиции для select'а, если ещё нет
+    if (!_mappingMasterList.length) {
+      const data = await tryFetch(`${API_BASE}/products?limit=2000`);
+      _mappingMasterList = data || [];
+    }
+    // Подгружаем suggest'ы (топ-150)
+    const sg = await tryFetch(`${API_BASE}/mapping/suggest?limit=150&min_confidence=0.40`);
+    if (!sg) { alert('Не удалось получить предложения'); return; }
+    _mappingSuggestData = sg;
+
+    // По умолчанию для каждого: выбран топ-1 кандидат, галка стоит если confidence ≥ 0.75
+    _mappingSelectedMaster = {};
+    _mappingChecked = {};
+    for (const it of sg) {
+      if (it.candidates.length) {
+        _mappingSelectedMaster[it.id] = it.candidates[0].product_id;
+        _mappingChecked[it.id] = it.candidates[0].confidence >= 0.75;
+      }
+    }
+    _renderMappingSuggestModal();
+  }
+  window.openMappingSuggestModal = openMappingSuggestModal;
+
+  function _renderMappingSuggestModal() {
+    const old = document.getElementById('mapping-suggest-modal');
+    if (old) old.remove();
+    const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const items = _mappingSuggestData;
+    const checkedCount = items.filter(it => _mappingChecked[it.id]).length;
+
+    // строим компактные опции master select (по категориям)
+    const byCat = {};
+    for (const p of _mappingMasterList) {
+      const cat = p.category || 'Без категории';
+      (byCat[cat] = byCat[cat] || []).push(p);
+    }
+    const masterOptions = (selectedId, candIds) => {
+      // candIds — массив id предложенных кандидатов (в начале списка для удобства)
+      const top = [];
+      for (const id of candIds) {
+        const p = _mappingMasterList.find(x => x.id === id);
+        if (p) top.push(p);
+      }
+      let html = '';
+      if (top.length) {
+        html += '<optgroup label="Предложено">';
+        for (const p of top) {
+          const sel = p.id === selectedId ? 'selected' : '';
+          html += `<option value="${p.id}" ${sel}>${safe(p.name)} (${safe(p.category)})</option>`;
+        }
+        html += '</optgroup>';
+      }
+      for (const cat of Object.keys(byCat).sort()) {
+        html += `<optgroup label="${safe(cat)}">`;
+        for (const p of byCat[cat]) {
+          if (top.find(x => x.id === p.id)) continue;
+          const sel = p.id === selectedId ? 'selected' : '';
+          html += `<option value="${p.id}" ${sel}>${safe(p.name)}</option>`;
+        }
+        html += '</optgroup>';
+      }
+      return html;
+    };
+
+    const rows = items.map(it => {
+      const cands = it.candidates;
+      const selId = _mappingSelectedMaster[it.id];
+      const chk = _mappingChecked[it.id] ? 'checked' : '';
+      const conf = cands.length ? cands[0].confidence : 0;
+      const confBadge = conf >= 0.80
+        ? `<span class="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">${Math.round(conf*100)}%</span>`
+        : conf >= 0.60
+          ? `<span class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">${Math.round(conf*100)}%</span>`
+          : `<span class="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">${Math.round(conf*100)}%</span>`;
+      const noCand = cands.length === 0;
+      return `
+        <tr class="hover:bg-slate-50">
+          <td class="px-3 py-2"><input type="checkbox" data-id="${it.id}" class="mapping-chk" ${chk} ${noCand ? 'disabled' : ''}></td>
+          <td class="px-3 py-2 text-xs text-slate-500">×${it.occurrence_count}</td>
+          <td class="px-3 py-2 text-sm font-medium">${safe(it.raw_name)} <span class="text-xs text-slate-400">(${safe(it.source)})</span></td>
+          <td class="px-3 py-2 text-slate-400">→</td>
+          <td class="px-3 py-2">
+            ${noCand ? '<span class="text-xs text-slate-400 italic">нет похожих, выберите вручную ↓</span>' : ''}
+            <select data-id="${it.id}" class="mapping-sel w-full border border-slate-200 rounded-md px-2 py-1 text-xs">
+              ${masterOptions(selId, cands.map(c => c.product_id))}
+            </select>
+          </td>
+          <td class="px-3 py-2 text-right">${confBadge}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const html = `
+      <div id="mapping-suggest-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+          <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <div class="font-semibold text-slate-900 text-lg">Авто-сопоставления</div>
+              <div class="text-xs text-slate-500 mt-0.5">
+                Топ нераспознанных позиций с предложением мастер-позиции. <b>Галочка</b> — подтвердить. Можно поменять кандидата через выпадающий список.
+                Отметили: <span id="mapping-checked-count" class="font-semibold">${checkedCount}</span> из ${items.length}
+              </div>
+            </div>
+            <button onclick="document.getElementById('mapping-suggest-modal').remove()" class="text-slate-400 hover:text-slate-600">
+              <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+          </div>
+          <div class="flex items-center gap-2 px-6 py-2 border-b border-slate-100 bg-slate-50 text-xs">
+            <button onclick="_mappingCheckAll(true)" class="text-indigo-600 hover:underline">Отметить все</button>
+            <span class="text-slate-300">·</span>
+            <button onclick="_mappingCheckAll(false)" class="text-indigo-600 hover:underline">Снять все</button>
+            <span class="text-slate-300">·</span>
+            <button onclick="_mappingCheckAll(0.75)" class="text-indigo-600 hover:underline">Только ≥75%</button>
+          </div>
+          <div class="overflow-y-auto" style="max-height:60vh">
+            <table class="w-full">
+              <thead class="bg-slate-50 sticky top-0 text-xs text-slate-500 uppercase tracking-wider">
+                <tr>
+                  <th class="px-3 py-2 w-8"></th>
+                  <th class="px-3 py-2 text-left w-12">N</th>
+                  <th class="px-3 py-2 text-left">Из выгрузки</th>
+                  <th class="px-3 py-2 w-6"></th>
+                  <th class="px-3 py-2 text-left">Мастер-позиция</th>
+                  <th class="px-3 py-2 text-right">Похоже</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">${rows}</tbody>
+            </table>
+          </div>
+          <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
+            <div class="text-xs text-slate-500">Подтверждённые добавятся в БД и в Google Sheets «Карта сопоставлений» (вкладка «Авто-сопоставления»).</div>
+            <div class="flex gap-2">
+              <button onclick="document.getElementById('mapping-suggest-modal').remove()" class="px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 rounded-lg">Отмена</button>
+              <button onclick="confirmMappingSuggestions()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg">
+                Подтвердить выбранные
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+    if (window.lucide) lucide.createIcons();
+
+    // wire up checkbox / select changes
+    document.querySelectorAll('.mapping-chk').forEach(cb => {
+      cb.addEventListener('change', e => {
+        _mappingChecked[+e.target.dataset.id] = e.target.checked;
+        document.getElementById('mapping-checked-count').textContent =
+          Object.values(_mappingChecked).filter(Boolean).length;
+      });
+    });
+    document.querySelectorAll('.mapping-sel').forEach(sel => {
+      sel.addEventListener('change', e => {
+        _mappingSelectedMaster[+e.target.dataset.id] = +e.target.value;
+      });
+    });
+  }
+
+  function _mappingCheckAll(mode) {
+    // mode: true | false | number (порог confidence)
+    for (const it of _mappingSuggestData) {
+      const c = it.candidates[0]?.confidence ?? 0;
+      if (mode === true)       _mappingChecked[it.id] = !!it.candidates.length;
+      else if (mode === false) _mappingChecked[it.id] = false;
+      else if (typeof mode === 'number') _mappingChecked[it.id] = c >= mode;
+    }
+    _renderMappingSuggestModal();
+  }
+  window._mappingCheckAll = _mappingCheckAll;
+
+  async function confirmMappingSuggestions() {
+    const items = _mappingSuggestData
+      .filter(it => _mappingChecked[it.id] && _mappingSelectedMaster[it.id])
+      .map(it => ({ unmapped_id: it.id, master_product_id: _mappingSelectedMaster[it.id] }));
+    if (!items.length) { alert('Ничего не выбрано'); return; }
+    if (!confirm(`Подтвердить ${items.length} сопоставлений? Они сохранятся в БД и в Google Sheets.`)) return;
+
+    const resp = await fetch(`${API_BASE}/mapping/bulk_confirm`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ items }),
+    });
+    if (!resp.ok) { alert('Ошибка: ' + resp.status); return; }
+    const r = await resp.json();
+    const msg = `Сохранено ${r.saved_db} сопоставлений в БД, ${r.sheets_appended} строк дописано в Google Sheets.${r.sheets_error ? '\n⚠ ' + r.sheets_error : ''}\n\nПересчитайте импорт чтобы обновить deviations.`;
+    alert(msg);
+    document.getElementById('mapping-suggest-modal')?.remove();
+    // Обновим страницу
+    hydrateMapping();
+  }
+  window.confirmMappingSuggestions = confirmMappingSuggestions;
 
   // ============ Карта позиций (Mapping) ============
   let MAPPING_CURRENT_CAT = null;

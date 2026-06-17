@@ -625,6 +625,179 @@ def list_unmapped(db: Session = Depends(get_db), limit: int = 50):
     ]
 
 
+# ============ АВТО-СОПОСТАВЛЕНИЯ (этап 2) ============
+
+def _normalize_for_match(s: str) -> str:
+    """Глубокая нормализация для fuzzy-сравнения: убираем '*', единицы измерения,
+    слова 'свежий/свежие/охл./с/м/охлаждённый' и т.п."""
+    import re as _re
+    if not s:
+        return ""
+    out = str(s).lower()
+    out = out.replace("*", " ").replace("ё", "е")
+    # Числа+единицы
+    out = _re.sub(r"\d+[\.,]?\d*\s*(кг|г|мл|л|шт|уп|гр|грамм|литр)\b", " ", out)
+    out = _re.sub(r"\b(\d+[\.,]?\d*)\b", " ", out)
+    # Стоп-слова
+    stop = ["свежий", "свежие", "свежая", "свежее", "охлажденный", "охл.", "охл",
+            "с/м", "с/с", "с/о", "б/у", "б/к", "б\\к", "б/г",
+            "филе", "натур.", "натур", "конс.", "конс",
+            "марк.", "марк", "штучн.", "штучн", "размер"]
+    for w in stop:
+        out = out.replace(w, " ")
+    # Знаки препинания + слэши
+    out = _re.sub(r"[^a-zа-я0-9 ]+", " ", out)
+    out = _re.sub(r"\s+", " ", out).strip()
+    return out
+
+
+@app.get("/api/mapping/suggest")
+def mapping_suggest(
+    db: Session = Depends(get_db),
+    limit: int = Query(100, ge=1, le=500),
+    min_confidence: float = Query(0.40, ge=0.0, le=1.0),
+):
+    """Для топа нераспознанных позиций предлагаем кандидатов из мастер-матрицы
+    с confidence-скорингом через difflib.SequenceMatcher. Возвращаем по 3 варианта."""
+    from difflib import SequenceMatcher
+
+    # Кеш всех ProductMaster (~750 шт) для fuzzy match
+    masters = db.execute(
+        select(ProductMaster.id, ProductMaster.name, Category.name)
+        .join(Category, Category.id == ProductMaster.category_id)
+    ).all()
+    master_keys = [(pm_id, name, cat, _normalize_for_match(name)) for pm_id, name, cat in masters]
+
+    unmapped = db.execute(
+        select(UnmappedItem).order_by(desc(UnmappedItem.occurrence_count)).limit(limit)
+    ).scalars().all()
+
+    out = []
+    for u in unmapped:
+        raw_norm = _normalize_for_match(u.raw_name)
+        if not raw_norm:
+            continue
+        scored = []
+        for pm_id, pm_name, cat, pm_norm in master_keys:
+            r = SequenceMatcher(None, raw_norm, pm_norm).ratio()
+            if r >= min_confidence:
+                scored.append((r, pm_id, pm_name, cat))
+        scored.sort(key=lambda x: -x[0])
+        candidates = [
+            {"product_id": pm_id, "product": pm_name, "category": cat, "confidence": round(r, 3)}
+            for r, pm_id, pm_name, cat in scored[:3]
+        ]
+        out.append({
+            "id": u.id,
+            "raw_name": u.raw_name,
+            "source": u.source,
+            "occurrence_count": u.occurrence_count,
+            "candidates": candidates,
+        })
+    return out
+
+
+class MappingItem(BaseModel):
+    unmapped_id: int
+    master_product_id: int
+
+
+class MappingBulkConfirm(BaseModel):
+    items: list[MappingItem]
+
+
+@app.post("/api/mapping/bulk_confirm")
+def mapping_bulk_confirm(
+    body: MappingBulkConfirm,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("buyer")),
+):
+    """Сохраняет подтверждённые сопоставления:
+    1) В БД — AccountingAlias (system по source UnmappedItem).
+    2) В Google Sheets «Карта сопоставлений» / вкладка «Авто-сопоставления»
+       (дописывает новые строки чтобы заказчик мог их видеть и редактировать).
+    """
+    from backend.models import AccountingSystem, AccountingAlias as AA
+    from backend.importer import normalize as _norm
+    saved_db = 0
+    sheets_rows = []
+    sys_cache = {s.name.lower(): s for s in db.execute(select(AccountingSystem)).scalars()}
+
+    for it in body.items:
+        u = db.get(UnmappedItem, it.unmapped_id)
+        pm = db.get(ProductMaster, it.master_product_id)
+        if not u or not pm:
+            continue
+        # Определяем систему учёта по source
+        src = (u.source or "").lower()
+        sys = sys_cache.get("sh" if src == "storehouse" else "iiko") \
+              or sys_cache.get(src) or list(sys_cache.values())[0]
+        # Создаём alias если ещё нет
+        existing = db.execute(
+            select(AA).where(AA.system_id == sys.id).where(AA.name_normalized == _norm(u.raw_name))
+        ).scalar_one_or_none()
+        if not existing:
+            db.add(AA(
+                product_master_id=pm.id, system_id=sys.id,
+                name=u.raw_name, name_normalized=_norm(u.raw_name),
+            ))
+            saved_db += 1
+        sheets_rows.append([u.raw_name, pm.name, u.source, "✓", datetime.utcnow().date().isoformat()])
+        # Убираем из нераспознанных
+        db.delete(u)
+
+    db.commit()
+
+    # Дописываем в Google Sheets «Карта сопоставлений» / вкладка «Авто-сопоставления»
+    sheets_appended = 0
+    sheets_error = None
+    if sheets_rows:
+        try:
+            import sys as _sys
+            etl_path = str(Path(__file__).parent.parent / "etl")
+            if etl_path not in _sys.path:
+                _sys.path.insert(0, etl_path)
+            from sync_master_to_suppliers import _get_services, _list_files  # noqa
+            drive, sheets = _get_services()
+            # Находим файл «Карта сопоставлений»
+            files = _list_files(drive)
+            mapping_file = next((f for f in files if f["name"].startswith("Карта сопоставлений")
+                                 and f["mimeType"] == "application/vnd.google-apps.spreadsheet"), None)
+            if mapping_file:
+                meta = sheets.spreadsheets().get(spreadsheetId=mapping_file["id"], fields="sheets.properties").execute()
+                titles = [s["properties"]["title"] for s in meta["sheets"]]
+                AUTO_TAB = "Авто-сопоставления"
+                if AUTO_TAB not in titles:
+                    # Создаём вкладку и шапку
+                    sheets.spreadsheets().batchUpdate(
+                        spreadsheetId=mapping_file["id"],
+                        body={"requests": [{"addSheet": {"properties": {"title": AUTO_TAB}}}]},
+                    ).execute()
+                    header = [["Из выгрузки (как пришло)", "Мастер-позиция", "Источник", "Подтверждено", "Дата"]]
+                    sheets.spreadsheets().values().update(
+                        spreadsheetId=mapping_file["id"],
+                        range=f"'{AUTO_TAB}'!A1",
+                        valueInputOption="USER_ENTERED",
+                        body={"values": header},
+                    ).execute()
+                sheets.spreadsheets().values().append(
+                    spreadsheetId=mapping_file["id"],
+                    range=f"'{AUTO_TAB}'!A:E",
+                    valueInputOption="USER_ENTERED",
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": sheets_rows},
+                ).execute()
+                sheets_appended = len(sheets_rows)
+        except Exception as e:
+            sheets_error = f"{type(e).__name__}: {e}"
+
+    return {
+        "saved_db": saved_db,
+        "sheets_appended": sheets_appended,
+        "sheets_error": sheets_error,
+    }
+
+
 # ============ RESTAURANTS DISCIPLINE ============
 
 @app.get("/api/restaurants/discipline")
