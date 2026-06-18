@@ -60,8 +60,11 @@
 
 <div id="app-shell" class="flex h-screen overflow-hidden">
 
+  <!-- BACKDROP (для мобильного — закрывает drawer по клику) -->
+  <div id="mobile-backdrop" class="fixed inset-0 bg-slate-900/50 z-30 hidden md:hidden" onclick="toggleMobileSidebar(false)"></div>
+
   <!-- SIDEBAR -->
-  <aside class="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
+  <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 fixed md:relative inset-y-0 left-0 z-40 -translate-x-full md:translate-x-0 transition-transform">
     <div class="p-5 border-b border-slate-200 bg-slate-900">
       <div class="flex items-center gap-3">
         <img src="/assets/maxim-mark.png" alt="МАКСИМ" class="w-10 h-10" />
@@ -142,11 +145,16 @@
   <main class="flex-1 overflow-y-auto">
 
     <!-- TOP BAR -->
-    <div class="sticky top-0 bg-white/80 backdrop-blur-sm border-b border-slate-200 px-8 py-4 z-10">
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="text-xs text-slate-500" id="breadcrumb">Главная</div>
-          <h1 class="text-xl font-bold text-slate-900" id="page-title">Дашборд</h1>
+    <div class="sticky top-0 bg-white/80 backdrop-blur-sm border-b border-slate-200 px-4 sm:px-8 py-3 sm:py-4 z-10">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-3 min-w-0">
+          <button onclick="toggleMobileSidebar()" class="md:hidden p-2 -ml-2 rounded-lg hover:bg-slate-100" aria-label="Меню">
+            <i data-lucide="menu" class="w-5 h-5 text-slate-700"></i>
+          </button>
+          <div class="min-w-0">
+            <div class="text-xs text-slate-500 truncate" id="breadcrumb">Главная</div>
+            <h1 class="text-lg sm:text-xl font-bold text-slate-900 truncate" id="page-title">Дашборд</h1>
+          </div>
         </div>
         <div class="flex items-center gap-3">
           <div class="flex items-center gap-2 text-sm text-slate-600">
@@ -164,7 +172,7 @@
     </div>
 
     <!-- ============ DASHBOARD ============ -->
-    <div id="page-dashboard" class="page active p-8">
+    <div id="page-dashboard" class="page active p-4 sm:p-8">
 
       <!-- Плашка-алёрт: динамика цен за неделю -->
       <div id="dashboard-prices-alert" class="hidden mb-4 bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-center gap-3 hover:bg-rose-100 cursor-pointer transition-colors"
@@ -178,7 +186,7 @@
       </div>
 
       <!-- Hero stats -->
-      <div class="grid grid-cols-4 gap-4 mb-6">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
         <div class="bg-white rounded-xl border border-slate-200 p-5">
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Переплата за период</span>
@@ -506,7 +514,7 @@
     </div>
 
     <!-- ============ RECOMMENDATIONS ============ -->
-    <div id="page-recommendations" class="page p-8">
+    <div id="page-recommendations" class="page p-4 sm:p-8">
       <div class="bg-white rounded-xl border border-slate-200 mb-4">
         <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
           <div>
@@ -535,7 +543,8 @@
           <button class="px-3 py-1 bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200">Консервация</button>
         </div>
 
-        <table class="w-full text-sm">
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm min-w-[800px]">
           <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
             <tr>
               <th class="px-6 py-3 text-left">Товар</th>
@@ -658,11 +667,12 @@
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 
     <!-- ============ SUMMARY (Сводная по поставщикам) ============ -->
-    <div id="page-summary" class="page p-8">
+    <div id="page-summary" class="page p-4 sm:p-8">
       <div class="bg-white rounded-xl border border-slate-200">
         <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
           <div>
@@ -695,7 +705,7 @@
     </div>
 
     <!-- ============ ANALYSIS ============ -->
-    <div id="page-analysis" class="page p-8">
+    <div id="page-analysis" class="page p-4 sm:p-8">
 
       <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 flex items-center gap-4">
         <i data-lucide="cloud-download" class="w-5 h-5 text-indigo-600 flex-shrink-0"></i>
@@ -710,7 +720,7 @@
         </button>
       </div>
 
-      <div class="grid grid-cols-4 gap-4 mb-4">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">🟢 По Топ-2</div>
           <div class="text-2xl font-bold text-emerald-600">847</div>
@@ -875,7 +885,7 @@
     </div>
 
     <!-- ============ PRICES (Динамика цен) ============ -->
-    <div id="page-prices" class="page p-8">
+    <div id="page-prices" class="page p-4 sm:p-8">
       <!-- Период + KPI -->
       <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div id="prices-period-tabs" class="flex gap-2">
@@ -895,7 +905,7 @@
       </div>
 
       <!-- KPI -->
-      <div class="grid grid-cols-4 gap-4 mb-4">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
         <div class="bg-white rounded-xl border border-slate-200 p-5">
           <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">Выросли</div>
           <div class="text-3xl font-bold text-rose-600 mt-1" id="prices-kpi-ups">—</div>
@@ -958,7 +968,7 @@
     </div>
 
     <!-- ============ SUPPLIERS ============ -->
-    <div id="page-suppliers" class="page p-8">
+    <div id="page-suppliers" class="page p-4 sm:p-8">
       <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-4 flex gap-4">
         <i data-lucide="info" class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
         <div class="flex-1">
@@ -1005,7 +1015,7 @@
     </div>
 
     <!-- ============ MAPPING ============ -->
-    <div id="page-mapping" class="page p-8">
+    <div id="page-mapping" class="page p-4 sm:p-8">
       <!-- Объясняющий баннер -->
       <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-4 flex gap-4">
         <i data-lucide="info" class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
@@ -1029,7 +1039,7 @@
       </div>
 
       <!-- KPI покрытие -->
-      <div class="grid grid-cols-4 gap-4 mb-4">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
         <div class="bg-white rounded-xl border border-slate-200 p-4">
           <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Мастер-позиций</div>
           <div class="text-2xl font-bold text-slate-900" id="mapping-kpi-master">…</div>
@@ -1111,7 +1121,7 @@
     </div>
 
     <!-- ============ CEO ============ -->
-    <div id="page-ceo" class="page p-8">
+    <div id="page-ceo" class="page p-4 sm:p-8">
       <div class="max-w-4xl mx-auto">
         <div class="bg-white rounded-2xl border border-slate-200 p-10 shadow-sm">
           <div class="flex items-center gap-3 mb-6 pb-6 border-b border-slate-100">
@@ -1225,7 +1235,7 @@
     </div>
 
     <!-- ============ INFLATION ============ -->
-    <div id="page-inflation" class="page p-8">
+    <div id="page-inflation" class="page p-4 sm:p-8">
       <div class="bg-white rounded-xl border border-slate-200 p-6 mb-4">
         <h3 class="font-semibold text-slate-900 mb-1">KPI: Закупки vs Инфляция</h3>
         <p class="text-xs text-slate-500 mb-5">Эффективность закупок — растём ли мы быстрее или медленнее рынка</p>
@@ -1358,10 +1368,28 @@
     }
   }
 
+  function toggleMobileSidebar(force) {
+    const sb = document.getElementById('sidebar');
+    const bd = document.getElementById('mobile-backdrop');
+    if (!sb || !bd) return;
+    const isOpen = !sb.classList.contains('-translate-x-full');
+    const next = (force === undefined) ? !isOpen : force;
+    if (next) {
+      sb.classList.remove('-translate-x-full');
+      bd.classList.remove('hidden');
+    } else {
+      sb.classList.add('-translate-x-full');
+      bd.classList.add('hidden');
+    }
+  }
+  window.toggleMobileSidebar = toggleMobileSidebar;
+
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', e => {
       e.preventDefault();
       navigate(item.dataset.page);
+      // Закрыть drawer на мобиле после клика
+      if (window.matchMedia('(max-width: 767px)').matches) toggleMobileSidebar(false);
     });
   });
 
@@ -1472,7 +1500,7 @@
     // Из Топ-2 имя поставщика кликабельно — открывает вкладку «Поставщики» с фокусом
     // на нужного, чтобы шеф мог сразу позвонить менеджеру.
     const isBuyer = CURRENT_USER && CURRENT_USER.role === 'buyer';
-    const chefAllowedPages = new Set(['analysis', 'recommendations', 'suppliers']);
+    const chefAllowedPages = new Set(['analysis', 'recommendations', 'suppliers', 'prices']);
 
     // Скрываем пункты меню
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -1766,9 +1794,12 @@
   let _recCache = [];  // последние загруженные данные — для фильтрации без перезапроса
 
   async function renderRecommendations(category) {
+    // limit=3000 — достаточно для всех текущих и будущих позиций мастера.
+    // Раньше стояло 300, и в режиме «Все» поиск не находил конец списка
+    // (Смородина чёрная отсекалась обрезкой).
     const url = category
-      ? `${API_BASE}/top2?category=${encodeURIComponent(category)}&limit=300`
-      : `${API_BASE}/top2?limit=300`;
+      ? `${API_BASE}/top2?category=${encodeURIComponent(category)}&limit=3000`
+      : `${API_BASE}/top2?limit=3000`;
     const data = await tryFetch(url);
     if (!data) return;
     _recCache = data;
@@ -3034,6 +3065,7 @@
       let html = '';
       html += `<td class="px-3 py-2 sticky left-0 bg-white z-10 border-b border-r border-slate-100 min-w-[280px]">${r.product}</td>`;
       html += `<td class="px-2 py-2 text-slate-500 border-b border-slate-100">${r.category}</td>`;
+      const safeCmt = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       suppliers.forEach(s => {
         const p = r.prices[s];
         if (p == null) {
@@ -3044,7 +3076,9 @@
           const cls = isMin ? 'bg-emerald-50 text-emerald-700 font-semibold'
                     : isMax ? 'text-rose-700'
                     : 'text-slate-700';
-          html += `<td class="px-2 py-2 text-right border-b border-slate-100 ${cls}">${fmt(p)}</td>`;
+          const cmt = (r.comments || {})[s];
+          const cmtLine = cmt ? `<div class="text-[10px] text-slate-400 italic mt-0.5 leading-tight">${safeCmt(cmt)}</div>` : '';
+          html += `<td class="px-2 py-2 text-right border-b border-slate-100 ${cls}"><div>${fmt(p)}</div>${cmtLine}</td>`;
         }
       });
       tr.innerHTML = html;

@@ -398,9 +398,11 @@ def get_summary(
     for pq, pm, cat, sup in db.execute(q).all():
         item = by_product.setdefault(pm.id, {
             "product_id": pm.id, "product": pm.name, "category": cat.name,
-            "unit_type": pq.unit_type, "prices": {},
+            "unit_type": pq.unit_type, "prices": {}, "comments": {},
         })
         item["prices"][sup.name] = pq.unit_price
+        if pq.supplier_comment:
+            item["comments"][sup.name] = pq.supplier_comment
         # последняя unit_type «победит» — но по факту они одинаковы внутри одной позиции
         item["unit_type"] = pq.unit_type
         sup_freq[sup.name] = sup_freq.get(sup.name, 0) + 1
@@ -420,6 +422,7 @@ def get_summary(
             "category": item["category"],
             "unit_type": item["unit_type"],
             "prices": prices,
+            "comments": item.get("comments", {}),
             "min_price": min(vals),
             "max_price": max(vals),
             "avg_price": sum(vals) / len(vals),
