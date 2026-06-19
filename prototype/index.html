@@ -2771,23 +2771,60 @@
 
     const started = Date.now();
     const startResp = await fetch(`${API_BASE}/sync`, { method: 'POST' });
+    if (startResp.status === 401) {
+      overlay.classList.add('hidden'); overlay.classList.remove('flex');
+      showLogin();
+      return;
+    }
     if (!startResp.ok) {
       stepEl.textContent = 'Ошибка запуска: ' + startResp.status;
       setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 2000);
       return;
     }
 
+    // Кнопка «Свернуть» — заказчик может закрыть overlay в любой момент
+    if (!document.getElementById('recalc-close-btn')) {
+      const btn = document.createElement('button');
+      btn.id = 'recalc-close-btn';
+      btn.className = 'mt-3 text-xs text-slate-500 hover:text-slate-700 underline';
+      btn.textContent = 'Свернуть (синхронизация продолжится в фоне)';
+      btn.onclick = () => {
+        clearInterval(poll);
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+      };
+      timeEl.parentNode.appendChild(btn);
+    }
+
+    let runningSeen = false;
+    const HARD_TIMEOUT_SEC = 1200; // 20 минут — потом сами закроем
     const poll = setInterval(async () => {
       const st = await tryFetch(`${API_BASE}/sync/status`);
       if (!st) return;
       const elapsed = Math.round((Date.now() - started) / 1000);
       timeEl.textContent = elapsed + ' сек';
+      if (st.status === 'running') runningSeen = true;
       if (st.log && st.log.length) {
         const last = st.log[st.log.length - 1];
         stepEl.textContent = last.step === 'drive_sync' ? 'Скачивание файлов с Google Drive...' : 'Импорт в базу данных...';
       }
       const pct = st.log ? Math.min(95, 5 + st.log.length * 45) : 10;
       progress.style.width = pct + '%';
+
+      // ЗАЩИТА 1: state потерян (idle после running — сервер перезагрузился).
+      if (st.status === 'idle' && runningSeen) {
+        clearInterval(poll);
+        stepEl.textContent = 'Соединение с сервером потеряно. Обновите страницу — данные, вероятно, уже свежие.';
+        setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 4000);
+        return;
+      }
+      // ЗАЩИТА 2: hard timeout 20 минут
+      if (elapsed > HARD_TIMEOUT_SEC) {
+        clearInterval(poll);
+        stepEl.textContent = 'Слишком долго — закрываю. Sync продолжается в фоне, обновите страницу через минуту.';
+        setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 5000);
+        return;
+      }
 
       if (st.status === 'ok' || st.status === 'error') {
         clearInterval(poll);
