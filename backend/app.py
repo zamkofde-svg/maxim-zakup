@@ -380,6 +380,10 @@ def portal_market(db: Session = Depends(get_db),
         my_rank = None
         if my_price is not None:
             my_rank = next((i + 1 for i, (p, sid) in enumerate(quotes) if sid == sup.id), None)
+        # Показываем ТОЛЬКО позиции с реальной конкуренцией (>=2 поставщика).
+        # Где поставщик монополист — не светим, иначе он догадается поднять цену.
+        if len(prices) < 2:
+            continue
         c = cats.setdefault(cat.name, {"category": cat.name, "unit_type": cat.unit_type, "positions": []})
         c["positions"].append({
             "product_id": pm.id,
