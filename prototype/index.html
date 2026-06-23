@@ -97,6 +97,11 @@
         <i data-lucide="line-chart" class="w-4 h-4 text-slate-500"></i>
         Динамика цен
       </a>
+      <a href="#" data-page="pending" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 buyer-only">
+        <i data-lucide="inbox" class="w-4 h-4 text-slate-500"></i>
+        Проверка цен
+        <span id="pending-nav-badge" style="display:none" class="ml-auto text-xs bg-amber-500 text-white px-2 py-0.5 rounded-full"></span>
+      </a>
       <a href="#" data-page="suppliers" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
         <i data-lucide="truck" class="w-4 h-4 text-slate-500"></i>
         Поставщики
@@ -163,11 +168,6 @@
               <option value="">все периоды</option>
             </select>
           </div>
-          <button onclick="openPendingReview()" class="relative flex items-center gap-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 px-3 py-2 rounded-lg text-sm font-medium buyer-only">
-            <i data-lucide="inbox" class="w-4 h-4"></i>
-            На проверке
-            <span id="pending-nav-badge" style="display:none" class="ml-1 text-xs bg-amber-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
-          </button>
           <button onclick="runRecalc()" id="recalc-btn" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
             <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             Запустить пересчёт
@@ -709,6 +709,25 @@
             <tbody></tbody>
           </table>
           <div id="summary-empty" class="p-8 text-center text-sm text-slate-400 hidden">Нет данных в этой категории</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ PROVERKA CEN (ацепт) ============ -->
+    <div id="page-pending" class="page p-4 sm:p-8">
+      <div class="bg-white rounded-xl border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 class="font-semibold text-slate-900">Проверка цен от поставщиков</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Поставщики ввели цены через портал. Проверьте (вдруг за упаковку вместо кг) и примите — тогда цены увидят шефы.</p>
+          </div>
+          <button onclick="hydratePending()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            Обновить
+          </button>
+        </div>
+        <div id="pending-list" class="p-5">
+          <div class="text-center text-slate-400 text-sm py-8">Загрузка…</div>
         </div>
       </div>
     </div>
@@ -1404,6 +1423,7 @@
     dashboard: ['Главная', 'Дашборд'],
     recommendations: ['Рекомендации', 'Топ-3 для шефов'],
     summary: ['Сводная', 'Цены по всем поставщикам'],
+    pending: ['Проверка цен', 'Цены от поставщиков на акцепт'],
     analysis: ['Анализ', 'Отклонения и переплаты'],
     prices: ['Динамика', 'История цен'],
     suppliers: ['Поставщики', 'Список и статус матриц'],
@@ -1436,6 +1456,7 @@
       document.getElementById('page-prices').dataset.loaded = '1';
       hydratePrices();
     }
+    if (page === 'pending') hydratePending();  // всегда свежее
   }
 
   function toggleMobileSidebar(force) {
@@ -3893,30 +3914,26 @@
   }
   window.deletePhoto = deletePhoto;
 
-  // ============ Ацепт: ревью изменений цен (закупщик) ============
-  async function openPendingReview() {
+  // ============ Ацепт: страница «Проверка цен» (закупщик) ============
+  async function hydratePending() {
+    const wrap = document.getElementById('pending-list');
+    if (!wrap) return;
     const data = await tryFetch(`${API_BASE}/pending-changes`);
-    if (!data) { alert('Не удалось загрузить'); return; }
-    _renderPendingReview(data);
-  }
-  window.openPendingReview = openPendingReview;
-
-  function _renderPendingReview(data) {
-    document.getElementById('pending-modal')?.remove();
+    if (!data) { wrap.innerHTML = '<div class="text-center text-rose-500 text-sm py-8">Не удалось загрузить</div>'; return; }
     const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const fmt = v => v == null ? '—' : (Number.isInteger(v) ? v : v.toFixed(2));
     let body = '';
     if (!data.total) {
-      body = '<div class="p-10 text-center text-slate-400 text-sm">Нет изменений на проверке</div>';
+      body = '<div class="p-10 text-center text-slate-400 text-sm"><i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-2 text-emerald-400"></i>Нет изменений на проверке — все цены поставщиков подтверждены.</div>';
     } else {
       for (const s of data.suppliers) {
         const allIds = s.items.map(i => i.id).join(',');
-        body += `<div class="mb-4">
-          <div class="flex items-center justify-between px-1 mb-1.5">
-            <div class="font-semibold text-slate-900 text-sm">${safe(s.supplier)} <span class="text-slate-400 font-normal">${s.items.length}</span></div>
+        body += `<div class="mb-5">
+          <div class="flex items-center justify-between px-1 mb-2 flex-wrap gap-2">
+            <div class="font-semibold text-slate-900">${safe(s.supplier)} <span class="text-slate-400 font-normal text-sm">${s.items.length}</span></div>
             <div class="flex gap-2">
-              <button onclick="pendingAct('approve', [${allIds}])" class="text-xs bg-emerald-600 text-white px-2.5 py-1 rounded">Принять все</button>
-              <button onclick="pendingAct('reject', [${allIds}])" class="text-xs text-slate-500 hover:text-rose-600">Отклонить все</button>
+              <button onclick="pendingAct('approve', [${allIds}])" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium">Принять все</button>
+              <button onclick="pendingAct('reject', [${allIds}])" class="text-xs text-slate-500 hover:text-rose-600 px-2 py-1.5">Отклонить все</button>
             </div>
           </div>
           <div class="border border-slate-200 rounded-lg overflow-hidden">`;
@@ -3924,39 +3941,28 @@
           const unit = it.unit_type === 'kg_or_l' ? '₽/кг·л' : '₽/упак';
           const dpct = it.delta_pct;
           const dCls = dpct == null ? 'text-slate-400' : (dpct > 0 ? 'text-rose-600' : 'text-emerald-600');
-          const dTxt = dpct == null ? 'новая' : (dpct>0?'+':'')+dpct+'%';
-          const newTxt = it.new_price == null ? '<span class="text-slate-400">убрал</span>' : `${fmt(it.new_price)} ${unit}`;
-          const cmt = it.comment ? `<div class="text-[10px] text-amber-700">💬 ${safe(it.comment)}</div>` : '';
-          body += `<div class="flex items-center gap-2 px-3 py-2 border-b border-slate-100 last:border-0 text-sm">
-            <div class="flex-1 min-w-0"><div class="truncate">${safe(it.product)}</div><div class="text-[10px] text-slate-400">${safe(it.category)}</div>${cmt}</div>
-            <div class="text-right text-slate-500 w-24">${it.old_price==null?'—':fmt(it.old_price)} →</div>
-            <div class="text-right font-semibold w-28">${newTxt}</div>
-            <div class="text-right ${dCls} w-16 text-xs font-medium">${dTxt}</div>
-            <div class="flex gap-1 w-20 justify-end">
-              <button onclick="pendingAct('approve',[${it.id}])" class="text-emerald-600 hover:bg-emerald-50 rounded p-1" title="Принять"><i data-lucide="check" class="w-4 h-4"></i></button>
-              <button onclick="pendingAct('reject',[${it.id}])" class="text-rose-500 hover:bg-rose-50 rounded p-1" title="Отклонить"><i data-lucide="x" class="w-4 h-4"></i></button>
+          const dTxt = dpct == null ? 'новая' : (dpct>0?'↑ +':'↓ ')+dpct+'%';
+          const newTxt = it.new_price == null ? '<span class="text-slate-400">убрал</span>' : `${fmt(it.new_price)} <span class="text-slate-400 text-xs">${unit}</span>`;
+          const cmt = it.comment ? `<div class="text-[11px] text-amber-700 mt-0.5">💬 ${safe(it.comment)}</div>` : '';
+          body += `<div class="flex items-center gap-3 px-4 py-2.5 border-b border-slate-100 last:border-0 text-sm hover:bg-slate-50">
+            <div class="flex-1 min-w-0"><div class="font-medium text-slate-800 truncate">${safe(it.product)}</div><div class="text-[11px] text-slate-400">${safe(it.category)}</div>${cmt}</div>
+            <div class="text-right text-slate-400 w-24 hidden sm:block">${it.old_price==null?'—':fmt(it.old_price)+' '+unit} →</div>
+            <div class="text-right font-semibold text-slate-900 w-28">${newTxt}</div>
+            <div class="text-right ${dCls} w-20 text-xs font-semibold">${dTxt}</div>
+            <div class="flex gap-1 w-[72px] justify-end flex-shrink-0">
+              <button onclick="pendingAct('approve',[${it.id}])" class="text-emerald-600 hover:bg-emerald-100 rounded-lg p-1.5" title="Принять"><i data-lucide="check" class="w-4 h-4"></i></button>
+              <button onclick="pendingAct('reject',[${it.id}])" class="text-rose-500 hover:bg-rose-100 rounded-lg p-1.5" title="Отклонить"><i data-lucide="x" class="w-4 h-4"></i></button>
             </div>
           </div>`;
         }
         body += `</div></div>`;
       }
     }
-    const html = `
-      <div id="pending-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col">
-          <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <div>
-              <div class="font-semibold text-slate-900 text-lg">Изменения цен на проверке</div>
-              <div class="text-xs text-slate-500 mt-0.5">Поставщики ввели цены. Проверьте (вдруг за упаковку вместо кг) и примите — тогда цены увидят шефы.</div>
-            </div>
-            <button onclick="document.getElementById('pending-modal').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
-          </div>
-          <div class="overflow-y-auto p-5">${body}</div>
-        </div>
-      </div>`;
-    document.body.insertAdjacentHTML('beforeend', html);
+    wrap.innerHTML = body;
+    _updatePendingBadge();
     if (window.lucide) lucide.createIcons();
   }
+  window.hydratePending = hydratePending;
 
   async function pendingAct(action, ids) {
     const resp = await fetch(`${API_BASE}/pending-changes/${action}`, {
@@ -3964,7 +3970,7 @@
       credentials: 'include', body: JSON.stringify({ ids }),
     });
     if (!resp.ok) { alert('Ошибка: ' + resp.status); return; }
-    await openPendingReview();  // перерисовать
+    await hydratePending();  // перерисовать страницу
     _updatePendingBadge();
   }
   window.pendingAct = pendingAct;
