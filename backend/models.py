@@ -242,10 +242,13 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(String(16))  # chef / buyer / ceo
+    role: Mapped[str] = mapped_column(String(16))  # chef / buyer / ceo / supplier
     restaurant_id: Mapped[Optional[int]] = mapped_column(ForeignKey("restaurants.id"))
+    # Для роли supplier — к какому поставщику привязан аккаунт (логин = «портал поставщика»)
+    supplier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("suppliers.id"), index=True)
     full_name: Mapped[Optional[str]] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     restaurant: Mapped[Optional[Restaurant]] = relationship()
+    supplier: Mapped[Optional[Supplier]] = relationship()

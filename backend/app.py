@@ -46,7 +46,7 @@ from backend.models import (
     ImportRun, UnmappedItem, User,
 )
 from backend.auth import (
-    current_user, require_role, verify_password,
+    current_user, require_role, verify_password, hash_password,
     make_session_token, COOKIE_NAME, COOKIE_MAX_AGE,
     ensure_default_users,
 )
@@ -102,7 +102,8 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
         max_age=COOKIE_MAX_AGE, httponly=True, samesite="lax",
         secure=False,  # на HTTPS поменять на True
     )
-    return {"username": user.username, "role": user.role, "full_name": user.full_name}
+    return {"username": user.username, "role": user.role, "full_name": user.full_name,
+            "supplier_id": user.supplier_id}
 
 
 @app.post("/api/auth/logout")
@@ -113,7 +114,8 @@ def logout(response: Response):
 
 @app.get("/api/auth/me")
 def me(user: User = Depends(current_user)):
-    return {"username": user.username, "role": user.role, "full_name": user.full_name}
+    return {"username": user.username, "role": user.role, "full_name": user.full_name,
+            "supplier_id": user.supplier_id}
 
 
 # ============ HEALTH / STATS ============
@@ -279,6 +281,236 @@ def list_suppliers(
     # Сначала те у кого есть цены
     result.sort(key=lambda x: (-x["quotes_count"], x["name"]))
     return result
+
+
+# ============ ПОРТАЛ ПОСТАВЩИКА (этап 3) ============
+# Поставщик логинится своим аккаунтом и заполняет цены прямо в приложении,
+# вместо Google Sheets. Видит все позиции мастер-матрицы, разложенные по
+# категориям-вкладкам. Названия только для чтения, вводит цену + комментарий.
+
+import re as _re_portal
+
+
+def _translit(s: str) -> str:
+    table = {
+        'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z',
+        'и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r',
+        'с':'s','т':'t','у':'u','ф':'f','х':'h','ц':'c','ч':'ch','ш':'sh','щ':'sch',
+        'ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya',
+    }
+    out = []
+    for ch in (s or "").lower():
+        out.append(table.get(ch, ch if ch.isalnum() else ""))
+    return "".join(out)
+
+
+@app.get("/api/portal/positions")
+def portal_positions(db: Session = Depends(get_db),
+                     user: User = Depends(require_role("supplier"))):
+    """Все мастер-позиции, сгруппированные по категориям, с текущей ценой
+    и комментарием ЭТОГО поставщика. Для портала поставщика."""
+    if not user.supplier_id:
+        raise HTTPException(400, "Аккаунт не привязан к поставщику")
+    sup = db.get(Supplier, user.supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+
+    # текущие цены этого поставщика: {product_master_id: (price, comment)}
+    my = {}
+    for pq in db.execute(select(PriceQuote).where(PriceQuote.supplier_id == sup.id)).scalars():
+        my[pq.product_master_id] = (pq.unit_price, pq.supplier_comment or "")
+
+    rows = db.execute(
+        select(ProductMaster, Category)
+        .join(Category, Category.id == ProductMaster.category_id)
+        .order_by(Category.name, ProductMaster.name)
+    ).all()
+
+    cats: dict[str, dict] = {}
+    for pm, cat in rows:
+        c = cats.setdefault(cat.name, {
+            "category": cat.name,
+            "unit_type": cat.unit_type,
+            "positions": [],
+        })
+        price, comment = my.get(pm.id, (None, ""))
+        c["positions"].append({
+            "product_id": pm.id,
+            "product": pm.name,
+            "price": price,
+            "comment": comment,
+        })
+
+    cats_list = sorted(cats.values(), key=lambda x: x["category"].casefold())
+    return {
+        "supplier": sup.name,
+        "categories": cats_list,
+        "total_positions": sum(len(c["positions"]) for c in cats_list),
+        "filled": sum(1 for c in cats_list for p in c["positions"] if p["price"] is not None),
+    }
+
+
+class PortalSaveItem(BaseModel):
+    product_id: int
+    price: Optional[float] = None
+    comment: Optional[str] = None
+
+
+class PortalSaveBody(BaseModel):
+    items: list[PortalSaveItem]
+
+
+@app.post("/api/portal/save")
+def portal_save(body: PortalSaveBody, db: Session = Depends(get_db),
+                user: User = Depends(require_role("supplier"))):
+    """Сохраняет цены и комментарии поставщика. Пустая цена → удаляет позицию
+    у поставщика (он её больше не предлагает)."""
+    if not user.supplier_id:
+        raise HTTPException(400, "Аккаунт не привязан к поставщику")
+    sup = db.get(Supplier, user.supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+
+    # unit_type по категории мастер-позиции
+    cat_unit = {}
+    for pm, cat in db.execute(
+        select(ProductMaster, Category).join(Category, Category.id == ProductMaster.category_id)
+    ).all():
+        cat_unit[pm.id] = cat.unit_type
+
+    now = datetime.utcnow()
+    saved, removed = 0, 0
+    for it in body.items:
+        pm = db.get(ProductMaster, it.product_id)
+        if not pm:
+            continue
+        existing = db.execute(
+            select(PriceQuote).where(PriceQuote.supplier_id == sup.id)
+            .where(PriceQuote.product_master_id == it.product_id)
+        ).scalar_one_or_none()
+
+        price = it.price
+        if price is None or price <= 0:
+            # пустая цена — убираем позицию у поставщика
+            if existing:
+                db.delete(existing)
+                removed += 1
+            continue
+
+        comment = (it.comment or "").strip() or None
+        unit_type = cat_unit.get(it.product_id, "pkg")
+        if existing:
+            if existing.unit_price != price:
+                # фиксируем изменение цены (та же логика что в importer)
+                db.add(PriceHistory(
+                    supplier_id=sup.id, product_master_id=it.product_id,
+                    unit_price=existing.unit_price, captured_at=existing.captured_at,
+                ))
+                if existing.unit_price and existing.unit_price >= 2 and price >= 2:
+                    delta = (price - existing.unit_price) / existing.unit_price * 100
+                    if abs(delta) <= 200:
+                        db.add(PriceChange(
+                            supplier_id=sup.id, product_master_id=it.product_id,
+                            old_price=existing.unit_price, new_price=price,
+                            delta_pct=delta, changed_at=now,
+                        ))
+            existing.unit_price = price
+            existing.unit_type = unit_type
+            existing.supplier_comment = comment
+            existing.captured_at = now
+        else:
+            db.add(PriceQuote(
+                supplier_id=sup.id, product_master_id=it.product_id,
+                unit_price=price, unit_type=unit_type,
+                supplier_comment=comment, captured_at=now,
+            ))
+        saved += 1
+
+    db.commit()
+    return {"saved": saved, "removed": removed}
+
+
+# ============ АДМИНКА АККАУНТОВ ПОСТАВЩИКОВ (для закупщика) ============
+
+@app.get("/api/supplier-accounts")
+def list_supplier_accounts(db: Session = Depends(get_db),
+                           user: User = Depends(require_role("buyer"))):
+    """Список поставщиков + есть ли у них логин в портал."""
+    suppliers = db.execute(
+        select(Supplier).where(Supplier.is_internal == False).order_by(Supplier.name)
+    ).scalars().all()
+    # карта supplier_id -> User
+    accounts = {}
+    for u in db.execute(select(User).where(User.role == "supplier")).scalars():
+        if u.supplier_id:
+            accounts[u.supplier_id] = u
+    out = []
+    for s in suppliers:
+        acc = accounts.get(s.id)
+        out.append({
+            "supplier_id": s.id,
+            "name": s.name,
+            "has_login": bool(acc),
+            "username": acc.username if acc else None,
+            "is_active": acc.is_active if acc else None,
+        })
+    return out
+
+
+class CreateSupplierAccount(BaseModel):
+    supplier_id: int
+    password: Optional[str] = None  # если не задан — сгенерим
+
+
+@app.post("/api/supplier-accounts")
+def create_supplier_account(body: CreateSupplierAccount, db: Session = Depends(get_db),
+                            user: User = Depends(require_role("buyer"))):
+    """Создаёт (или сбрасывает пароль) логин поставщика для портала.
+    Возвращает username + password в открытом виде ОДИН РАЗ — чтобы закупщик
+    передал поставщику."""
+    sup = db.get(Supplier, body.supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+
+    import secrets as _secrets
+    password = body.password or _secrets.token_urlsafe(6)
+
+    existing = db.execute(
+        select(User).where(User.role == "supplier").where(User.supplier_id == sup.id)
+    ).scalar_one_or_none()
+
+    if existing:
+        existing.password_hash = hash_password(password)
+        existing.is_active = True
+        username = existing.username
+    else:
+        # генерим username из транслита имени, уникализируем
+        base = _translit(sup.name)[:20] or f"sup{sup.id}"
+        username = base
+        n = 1
+        while db.execute(select(User).where(User.username == username)).scalar_one_or_none():
+            n += 1
+            username = f"{base}{n}"
+        db.add(User(
+            username=username, password_hash=hash_password(password),
+            role="supplier", supplier_id=sup.id, full_name=sup.name, is_active=True,
+        ))
+    db.commit()
+    return {"username": username, "password": password, "supplier": sup.name}
+
+
+@app.post("/api/supplier-accounts/{supplier_id}/toggle")
+def toggle_supplier_account(supplier_id: int, db: Session = Depends(get_db),
+                            user: User = Depends(require_role("buyer"))):
+    """Включить/выключить доступ поставщика."""
+    acc = db.execute(
+        select(User).where(User.role == "supplier").where(User.supplier_id == supplier_id)
+    ).scalar_one_or_none()
+    if not acc:
+        raise HTTPException(404, "Аккаунт не найден")
+    acc.is_active = not acc.is_active
+    db.commit()
+    return {"supplier_id": supplier_id, "is_active": acc.is_active}
 
 
 # ============ PRODUCTS & TOP-2 ============

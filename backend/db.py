@@ -50,6 +50,9 @@ def _apply_lightweight_migrations() -> None:
         "price_quotes": [
             ("supplier_comment", "TEXT"),
         ],
+        "users": [
+            ("supplier_id", "INTEGER"),
+        ],
     }
     with engine.begin() as conn:
         for table, cols in expected.items():

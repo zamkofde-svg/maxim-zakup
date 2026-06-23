@@ -997,6 +997,10 @@
               <i data-lucide="refresh-cw" class="w-4 h-4"></i>
               Обновить контакты
             </button>
+            <button onclick="openSupplierAccounts()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium buyer-only">
+              <i data-lucide="key-round" class="w-4 h-4"></i>
+              Логины для портала
+            </button>
             <button onclick="runMasterSync()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
               <i data-lucide="git-fork" class="w-4 h-4"></i>
               Обновить по мастер-матрице
@@ -1312,6 +1316,56 @@
   </main>
 </div>
 
+<!-- ============ ПОРТАЛ ПОСТАВЩИКА (role=supplier) ============ -->
+<div id="supplier-portal" class="hidden fixed inset-0 bg-slate-50 z-40 flex flex-col">
+  <!-- Шапка -->
+  <header class="bg-white border-b border-slate-200 px-4 sm:px-8 py-3 flex items-center justify-between gap-3 flex-wrap">
+    <div class="flex items-center gap-3 min-w-0">
+      <img src="/assets/maxim-mark.png" alt="МАКСИМ" class="w-9 h-9" />
+      <div class="min-w-0">
+        <div class="font-bold text-slate-900 truncate" id="portal-supplier-name">Поставщик</div>
+        <div class="text-xs text-slate-500">Заполнение цен · МАКСИМ</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 sm:gap-3">
+      <div class="text-xs text-slate-500 hidden sm:block" id="portal-progress">…</div>
+      <button id="portal-save-btn" onclick="portalSave()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
+        <i data-lucide="save" class="w-4 h-4"></i>
+        <span>Сохранить</span>
+      </button>
+      <button onclick="doLogout()" class="text-slate-400 hover:text-slate-700 p-2" title="Выйти">
+        <i data-lucide="log-out" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Инфо-баннер -->
+  <div class="bg-blue-50 border-b border-blue-200 px-4 sm:px-8 py-2.5 text-xs text-blue-800">
+    Вводите <b>цену</b> напротив товаров, которые вы поставляете. Можно добавить комментарий (страна, фасовка). Пустая цена — товар у вас отсутствует. Не забывайте <b>сохранять</b>.
+  </div>
+
+  <!-- Вкладки категорий -->
+  <div id="portal-cat-tabs" class="bg-white border-b border-slate-200 px-3 sm:px-6 py-2 flex gap-2 overflow-x-auto flex-shrink-0"></div>
+
+  <!-- Поиск -->
+  <div class="bg-white border-b border-slate-100 px-4 sm:px-8 py-2">
+    <div class="relative max-w-md">
+      <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-400"></i>
+      <input id="portal-search" type="text" placeholder="Поиск товара…"
+             class="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    </div>
+  </div>
+
+  <!-- Список позиций -->
+  <div id="portal-positions" class="flex-1 overflow-y-auto px-2 sm:px-8 py-3"></div>
+
+  <!-- Нижняя плашка сохранения (мобайл) -->
+  <div class="bg-white border-t border-slate-200 px-4 py-3 flex items-center justify-between sm:hidden">
+    <div class="text-xs text-slate-500" id="portal-progress-mobile">…</div>
+    <button onclick="portalSave()" class="bg-emerald-600 text-white px-5 py-2 rounded-lg text-sm font-semibold">Сохранить</button>
+  </div>
+</div>
+
 <!-- RECALC OVERLAY -->
 <div id="recalc-overlay" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm hidden items-center justify-center z-50">
   <div class="bg-white rounded-2xl p-8 w-96 shadow-2xl">
@@ -1484,7 +1538,7 @@
       CURRENT_USER = await r.json();
       hideLogin();
       applyRoleVisibility();
-      initApp();
+      if (CURRENT_USER.role !== 'supplier') initApp();
     } catch (e) {
       err.textContent = 'Сеть недоступна';
       err.classList.remove('hidden');
@@ -1500,6 +1554,16 @@
   window.doLogout = doLogout;
 
   function applyRoleVisibility() {
+    // Поставщик — отдельный портал, не видит обычный интерфейс закупщика/шефа.
+    if (CURRENT_USER && CURRENT_USER.role === 'supplier') {
+      document.getElementById('app-shell').style.display = 'none';
+      document.getElementById('supplier-portal').classList.remove('hidden');
+      enterSupplierPortal();
+      return;
+    }
+    document.getElementById('supplier-portal').classList.add('hidden');
+    document.getElementById('app-shell').style.display = '';
+
     // Шеф видит: Рекомендации (Топ-2), Анализ закупок, Поставщики (только для контактов).
     // Из Топ-2 имя поставщика кликабельно — открывает вкладку «Поставщики» с фокусом
     // на нужного, чтобы шеф мог сразу позвонить менеджеру.
@@ -2463,6 +2527,77 @@
   }
   window.refreshSupplierContacts = refreshSupplierContacts;
 
+  // ============ Логины поставщиков для портала ============
+  async function openSupplierAccounts() {
+    const data = await tryFetch(`${API_BASE}/supplier-accounts`);
+    if (!data) { alert('Не удалось загрузить'); return; }
+    _renderSupplierAccountsModal(data);
+  }
+  window.openSupplierAccounts = openSupplierAccounts;
+
+  function _renderSupplierAccountsModal(list) {
+    document.getElementById('sup-acc-modal')?.remove();
+    const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const rows = list.map(s => {
+      const badge = s.has_login
+        ? (s.is_active
+            ? `<span class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">${safe(s.username)}</span>`
+            : `<span class="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">выключен: ${safe(s.username)}</span>`)
+        : `<span class="text-xs text-slate-400">нет логина</span>`;
+      const createBtn = `<button onclick="createSupplierLogin(${s.supplier_id})" class="text-xs text-indigo-600 hover:underline">${s.has_login ? 'сбросить пароль' : 'создать логин'}</button>`;
+      const toggleBtn = s.has_login ? `<button onclick="toggleSupplierLogin(${s.supplier_id})" class="text-xs text-slate-500 hover:underline ml-3">${s.is_active ? 'выключить' : 'включить'}</button>` : '';
+      return `
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-2 text-sm">${safe(s.name)}</td>
+          <td class="px-4 py-2">${badge}</td>
+          <td class="px-4 py-2 text-right">${createBtn}${toggleBtn}</td>
+        </tr>`;
+    }).join('');
+    const html = `
+      <div id="sup-acc-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+          <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <div class="font-semibold text-slate-900 text-lg">Логины поставщиков для портала</div>
+              <div class="text-xs text-slate-500 mt-0.5">Создайте логин — поставщик войдёт и заполнит цены прямо в приложении, без Google Sheets.</div>
+            </div>
+            <button onclick="document.getElementById('sup-acc-modal').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+          </div>
+          <div class="overflow-y-auto">
+            <table class="w-full">
+              <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider sticky top-0">
+                <tr><th class="px-4 py-2 text-left">Поставщик</th><th class="px-4 py-2 text-left">Логин</th><th class="px-4 py-2 text-right">Действие</th></tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    if (window.lucide) lucide.createIcons();
+  }
+
+  async function createSupplierLogin(supplierId) {
+    const resp = await fetch(`${API_BASE}/supplier-accounts`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      credentials: 'include', body: JSON.stringify({ supplier_id: supplierId }),
+    });
+    if (!resp.ok) { alert('Ошибка: ' + resp.status); return; }
+    const r = await resp.json();
+    // Показываем креды — единственный раз
+    prompt(`Логин и пароль для «${r.supplier}». Скопируйте и передайте поставщику (пароль больше не показывается):`,
+           `Логин: ${r.username}    Пароль: ${r.password}`);
+    openSupplierAccounts(); // перерисовать
+  }
+  window.createSupplierLogin = createSupplierLogin;
+
+  async function toggleSupplierLogin(supplierId) {
+    const resp = await fetch(`${API_BASE}/supplier-accounts/${supplierId}/toggle`, { method: 'POST', credentials: 'include' });
+    if (!resp.ok) { alert('Ошибка: ' + resp.status); return; }
+    openSupplierAccounts();
+  }
+  window.toggleSupplierLogin = toggleSupplierLogin;
+
   // ============ Авто-сопоставления (этап 2) ============
   let _mappingSuggestData = [];   // [{id, raw_name, source, occurrence_count, candidates}]
   let _mappingMasterList = [];    // [{id, name, category}]
@@ -3416,6 +3551,168 @@
   window.runFactsSync = runFactsSync;
 
   // ============ Инициализация: сначала auth-чек ============
+  // ============ ПОРТАЛ ПОСТАВЩИКА ============
+  let _portalData = null;     // {supplier, categories:[{category, unit_type, positions:[]}], ...}
+  let _portalCat = null;      // активная категория
+  let _portalDirty = {};      // {product_id: {price, comment}} — несохранённые изменения
+  let _portalSearch = '';
+
+  async function enterSupplierPortal() {
+    const data = await tryFetch(`${API_BASE}/portal/positions`);
+    if (!data) {
+      document.getElementById('portal-positions').innerHTML =
+        '<div class="p-8 text-center text-slate-500">Не удалось загрузить позиции. Обновите страницу.</div>';
+      return;
+    }
+    _portalData = data;
+    _portalDirty = {};
+    _portalCat = data.categories.length ? data.categories[0].category : null;
+    document.getElementById('portal-supplier-name').textContent = data.supplier;
+    _renderPortalTabs();
+    _renderPortalProgress();
+    _renderPortalPositions();
+
+    const sb = document.getElementById('portal-search');
+    if (sb && !sb._wired) {
+      sb._wired = true;
+      sb.addEventListener('input', e => { _portalSearch = e.target.value.trim().toLowerCase(); _renderPortalPositions(); });
+    }
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function _renderPortalTabs() {
+    const wrap = document.getElementById('portal-cat-tabs');
+    if (!wrap || !_portalData) return;
+    wrap.innerHTML = '';
+    for (const c of _portalData.categories) {
+      const filled = c.positions.filter(p => _portalValue(p).price != null && _portalValue(p).price !== '').length;
+      const btn = document.createElement('button');
+      const active = c.category === _portalCat;
+      btn.className = 'px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap ' +
+        (active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
+      btn.innerHTML = `${c.category} <span class="${active ? 'text-indigo-100' : 'text-slate-400'}">${filled}/${c.positions.length}</span>`;
+      btn.onclick = () => { _portalCat = c.category; _portalSearch=''; const s=document.getElementById('portal-search'); if(s)s.value=''; _renderPortalTabs(); _renderPortalPositions(); };
+      wrap.appendChild(btn);
+    }
+  }
+
+  // текущее значение позиции с учётом несохранённых правок
+  function _portalValue(p) {
+    if (_portalDirty[p.product_id]) return _portalDirty[p.product_id];
+    return { price: p.price, comment: p.comment || '' };
+  }
+
+  function _renderPortalProgress() {
+    if (!_portalData) return;
+    let filled = 0, total = 0;
+    for (const c of _portalData.categories) for (const p of c.positions) {
+      total++;
+      const v = _portalValue(p);
+      if (v.price != null && v.price !== '') filled++;
+    }
+    const dirtyCount = Object.keys(_portalDirty).length;
+    const txt = `Заполнено ${filled} из ${total}` + (dirtyCount ? ` · несохранённых: ${dirtyCount}` : '');
+    const el = document.getElementById('portal-progress'); if (el) el.textContent = txt;
+    const elm = document.getElementById('portal-progress-mobile'); if (elm) elm.textContent = txt;
+    // подсветка кнопки если есть несохранённое
+    const btn = document.getElementById('portal-save-btn');
+    if (btn) btn.classList.toggle('animate-pulse', dirtyCount > 0);
+  }
+
+  function _renderPortalPositions() {
+    const wrap = document.getElementById('portal-positions');
+    if (!wrap || !_portalData) return;
+    const cat = _portalData.categories.find(c => c.category === _portalCat);
+    if (!cat) { wrap.innerHTML = ''; return; }
+    const unitLabel = cat.unit_type === 'kg_or_l' ? '₽/кг·л' : '₽/упак';
+    const q = _portalSearch;
+    const positions = q ? cat.positions.filter(p => p.product.toLowerCase().includes(q)) : cat.positions;
+
+    const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    let html = `<div class="max-w-3xl mx-auto space-y-1.5">`;
+    if (!positions.length) {
+      html += '<div class="p-8 text-center text-slate-400 text-sm">Ничего не найдено</div>';
+    }
+    for (const p of positions) {
+      const v = _portalValue(p);
+      const hasDirty = !!_portalDirty[p.product_id];
+      html += `
+        <div class="bg-white rounded-lg border ${hasDirty ? 'border-amber-300' : 'border-slate-200'} p-3">
+          <div class="text-sm font-medium text-slate-900 mb-2">${safe(p.product)}</div>
+          <div class="flex gap-2 items-center">
+            <div class="relative w-32 flex-shrink-0">
+              <input type="number" inputmode="decimal" step="0.01" min="0"
+                     value="${v.price != null ? v.price : ''}"
+                     onchange="portalEdit(${p.product_id}, 'price', this.value)"
+                     class="w-full border border-slate-300 rounded-md pl-2 pr-12 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                     placeholder="цена">
+              <span class="absolute right-2 top-2.5 text-[10px] text-slate-400">${unitLabel}</span>
+            </div>
+            <input type="text" value="${safe(v.comment)}"
+                   onchange="portalEdit(${p.product_id}, 'comment', this.value)"
+                   class="flex-1 border border-slate-200 rounded-md px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                   placeholder="комментарий (страна, фасовка)…">
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+    wrap.innerHTML = html;
+  }
+
+  function portalEdit(productId, field, value) {
+    // находим текущее значение позиции
+    let orig = null;
+    for (const c of _portalData.categories) {
+      const p = c.positions.find(x => x.product_id === productId);
+      if (p) { orig = p; break; }
+    }
+    if (!orig) return;
+    const cur = _portalDirty[productId] || { price: orig.price, comment: orig.comment || '' };
+    if (field === 'price') {
+      cur.price = value === '' ? null : parseFloat(value.replace(',', '.'));
+    } else {
+      cur.comment = value;
+    }
+    _portalDirty[productId] = cur;
+    _renderPortalProgress();
+    _renderPortalTabs();
+  }
+  window.portalEdit = portalEdit;
+
+  async function portalSave() {
+    const items = Object.entries(_portalDirty).map(([pid, v]) => ({
+      product_id: +pid, price: (v.price === '' ? null : v.price), comment: v.comment || null,
+    }));
+    if (!items.length) { alert('Нет изменений для сохранения'); return; }
+    const btn = document.getElementById('portal-save-btn');
+    if (btn) { btn.disabled = true; btn.querySelector('span').textContent = 'Сохраняю…'; }
+    const resp = await fetch(`${API_BASE}/portal/save`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      credentials: 'include', body: JSON.stringify({ items }),
+    });
+    if (btn) { btn.disabled = false; btn.querySelector('span').textContent = 'Сохранить'; }
+    if (resp.status === 401) { showLogin(); return; }
+    if (!resp.ok) { alert('Ошибка сохранения: ' + resp.status); return; }
+    const r = await resp.json();
+    // применяем dirty к данным и сбрасываем
+    for (const [pid, v] of Object.entries(_portalDirty)) {
+      for (const c of _portalData.categories) {
+        const p = c.positions.find(x => x.product_id === +pid);
+        if (p) { p.price = (v.price === '' ? null : v.price); p.comment = v.comment || ''; }
+      }
+    }
+    _portalDirty = {};
+    _renderPortalTabs(); _renderPortalProgress(); _renderPortalPositions();
+    if (window.lucide) lucide.createIcons();
+    // короткий тост
+    if (btn) {
+      const span = btn.querySelector('span'); const old = span.textContent;
+      span.textContent = `✓ Сохранено (${r.saved})`;
+      setTimeout(() => { span.textContent = old; }, 1800);
+    }
+  }
+  window.portalSave = portalSave;
+
   async function initApp() {
     hideNotReadyPages();
     hydratePeriodSelect();
@@ -3442,7 +3739,7 @@
     } else {
       CURRENT_USER = me;
       applyRoleVisibility();
-      initApp();
+      if (CURRENT_USER.role !== 'supplier') initApp();
     }
   });
 </script>
