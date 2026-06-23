@@ -659,17 +659,24 @@ def delete_product_photo(product_id: int, db: Session = Depends(get_db),
 @app.get("/api/supplier-accounts")
 def list_supplier_accounts(db: Session = Depends(get_db),
                            user: User = Depends(require_role("buyer"))):
-    """Список поставщиков + есть ли у них логин в портал."""
-    suppliers = db.execute(
-        select(Supplier).where(Supplier.is_internal == False).order_by(Supplier.name)
-    ).scalars().all()
-    # карта supplier_id -> User
+    """Список МАТРИЧНЫХ поставщиков (у кого есть цены) + есть ли у них логин.
+    Фактовые поставщики из выгрузок iiko/SH (Инстамарт и т.п.) не показываем —
+    им портал не нужен."""
     accounts = {}
     for u in db.execute(select(User).where(User.role == "supplier")).scalars():
         if u.supplier_id:
             accounts[u.supplier_id] = u
+    # матричные = есть хоть одна цена ИЛИ уже есть логин
+    sup_ids_with_quotes = {r[0] for r in db.execute(
+        select(PriceQuote.supplier_id).distinct()
+    ).all()}
+    suppliers = db.execute(
+        select(Supplier).where(Supplier.is_internal == False).order_by(Supplier.name)
+    ).scalars().all()
     out = []
     for s in suppliers:
+        if s.id not in sup_ids_with_quotes and s.id not in accounts:
+            continue
         acc = accounts.get(s.id)
         out.append({
             "supplier_id": s.id,
