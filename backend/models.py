@@ -83,6 +83,7 @@ class ProductMaster(Base):
     name_normalized: Mapped[str] = mapped_column(String(512), index=True)
     unit_label: Mapped[Optional[str]] = mapped_column(String(16))  # КГ/ШТ для Овощифрукты
     group_abc: Mapped[Optional[str]] = mapped_column(String(1))   # A/B/C — задаём руками
+    has_photo: Mapped[bool] = mapped_column(Boolean, default=False)  # есть ли фото-эталон позиции
 
     category: Mapped[Category] = relationship()
     accounting_aliases: Mapped[list["AccountingAlias"]] = relationship(
@@ -158,6 +159,23 @@ class PriceChange(Base):
     new_price: Mapped[float] = mapped_column(Float)
     delta_pct: Mapped[float] = mapped_column(Float)  # (new - old) / old * 100
     changed_at: Mapped[datetime] = mapped_column(DateTime, index=True, default=datetime.utcnow)
+
+
+class PendingPriceChange(Base):
+    """Цена, которую ПОСТАВЩИК ввёл в портале, но закупщик ещё НЕ подтвердил.
+    Пока не подтверждено — не попадает в price_quotes (шефы не видят).
+    Закупщик проверяет (вдруг за упаковку вместо кг) и принимает/отклоняет."""
+    __tablename__ = "pending_price_changes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), index=True)
+    product_master_id: Mapped[int] = mapped_column(ForeignKey("products_master.id"), index=True)
+    new_price: Mapped[Optional[float]] = mapped_column(Float)   # None = поставщик убрал позицию
+    new_comment: Mapped[Optional[str]] = mapped_column(Text)
+    old_price: Mapped[Optional[float]] = mapped_column(Float)   # текущая живая цена на момент подачи
+    unit_type: Mapped[str] = mapped_column(String(16), default="pkg")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("supplier_id", "product_master_id"),)
 
 
 # ============ ФАКТ ЗАКУПОК ============

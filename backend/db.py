@@ -53,6 +53,9 @@ def _apply_lightweight_migrations() -> None:
         "users": [
             ("supplier_id", "INTEGER"),
         ],
+        "products_master": [
+            ("has_photo", "BOOLEAN DEFAULT 0"),
+        ],
     }
     with engine.begin() as conn:
         for table, cols in expected.items():

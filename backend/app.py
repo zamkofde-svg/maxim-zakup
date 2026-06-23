@@ -28,7 +28,7 @@ for sig_name in ("SIGTERM", "SIGINT", "SIGHUP"):
     except Exception as e:
         print(f"[boot] couldn't install {sig_name} handler: {e}", flush=True)
 
-from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, Response
+from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks, Response, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -41,7 +41,7 @@ from backend.models import (
     Category, AccountingSystem, Restaurant,
     Supplier, SupplierAlias,
     ProductMaster, AccountingAlias,
-    PriceQuote, PriceHistory, PriceChange,
+    PriceQuote, PriceHistory, PriceChange, PendingPriceChange,
     PurchaseFact, Deviation,
     ImportRun, UnmappedItem, User,
 )
@@ -304,21 +304,43 @@ def _translit(s: str) -> str:
     return "".join(out)
 
 
-@app.get("/api/portal/positions")
-def portal_positions(db: Session = Depends(get_db),
-                     user: User = Depends(require_role("supplier"))):
-    """Все мастер-позиции, сгруппированные по категориям, с текущей ценой
-    и комментарием ЭТОГО поставщика. Для портала поставщика."""
-    if not user.supplier_id:
-        raise HTTPException(400, "Аккаунт не привязан к поставщику")
-    sup = db.get(Supplier, user.supplier_id)
+def _resolve_portal_supplier(db: Session, user: User, supplier_id: Optional[int]) -> Supplier:
+    """Возвращает поставщика, чей портал смотрим.
+    - supplier: всегда свой (param игнорируется)
+    - buyer: обязателен supplier_id (мастер-вход — закупщик заходит за поставщика)
+    """
+    if user.role == "supplier":
+        if not user.supplier_id:
+            raise HTTPException(400, "Аккаунт не привязан к поставщику")
+        sup = db.get(Supplier, user.supplier_id)
+    elif user.role == "buyer":
+        if not supplier_id:
+            raise HTTPException(400, "Нужен supplier_id")
+        sup = db.get(Supplier, supplier_id)
+    else:
+        raise HTTPException(403, "Нет доступа к порталу")
     if not sup:
         raise HTTPException(404, "Поставщик не найден")
+    return sup
 
-    # текущие цены этого поставщика: {product_master_id: (price, comment)}
-    my = {}
+
+@app.get("/api/portal/positions")
+def portal_positions(db: Session = Depends(get_db),
+                     supplier_id: Optional[int] = None,
+                     user: User = Depends(current_user)):
+    """Все мастер-позиции по категориям + цена/комментарий поставщика.
+    Если у поставщика есть НЕподтверждённое изменение (pending) — показываем его
+    значение с флагом pending=true (поставщик видит что ввёл, ждёт проверки)."""
+    sup = _resolve_portal_supplier(db, user, supplier_id)
+
+    # живые цены: {pm_id: (price, comment)}
+    live = {}
     for pq in db.execute(select(PriceQuote).where(PriceQuote.supplier_id == sup.id)).scalars():
-        my[pq.product_master_id] = (pq.unit_price, pq.supplier_comment or "")
+        live[pq.product_master_id] = (pq.unit_price, pq.supplier_comment or "")
+    # pending (на проверке): {pm_id: (price, comment)}
+    pend = {}
+    for pc in db.execute(select(PendingPriceChange).where(PendingPriceChange.supplier_id == sup.id)).scalars():
+        pend[pc.product_master_id] = (pc.new_price, pc.new_comment or "")
 
     rows = db.execute(
         select(ProductMaster, Category)
@@ -329,37 +351,41 @@ def portal_positions(db: Session = Depends(get_db),
     cats: dict[str, dict] = {}
     for pm, cat in rows:
         c = cats.setdefault(cat.name, {
-            "category": cat.name,
-            "unit_type": cat.unit_type,
-            "positions": [],
+            "category": cat.name, "unit_type": cat.unit_type, "positions": [],
         })
-        price, comment = my.get(pm.id, (None, ""))
+        is_pending = pm.id in pend
+        if is_pending:
+            price, comment = pend[pm.id]
+        else:
+            price, comment = live.get(pm.id, (None, ""))
         c["positions"].append({
             "product_id": pm.id,
             "product": pm.name,
             "price": price,
             "comment": comment,
+            "pending": is_pending,
+            "has_photo": pm.has_photo,
         })
 
     cats_list = sorted(cats.values(), key=lambda x: x["category"].casefold())
     return {
         "supplier": sup.name,
+        "supplier_id": sup.id,
+        "is_buyer": user.role == "buyer",   # закупщик в режиме мастер-входа
         "categories": cats_list,
         "total_positions": sum(len(c["positions"]) for c in cats_list),
         "filled": sum(1 for c in cats_list for p in c["positions"] if p["price"] is not None),
+        "pending_count": len(pend),
     }
 
 
 @app.get("/api/portal/market")
 def portal_market(db: Session = Depends(get_db),
-                  user: User = Depends(require_role("supplier"))):
+                  supplier_id: Optional[int] = None,
+                  user: User = Depends(current_user)):
     """Анонимный Топ-3 рынка для поставщика: по каждой позиции 3 минимальные цены
     БЕЗ имён конкурентов + своя цена и своё место. Мотивирует снижать цену."""
-    if not user.supplier_id:
-        raise HTTPException(400, "Аккаунт не привязан к поставщику")
-    sup = db.get(Supplier, user.supplier_id)
-    if not sup:
-        raise HTTPException(404, "Поставщик не найден")
+    sup = _resolve_portal_supplier(db, user, supplier_id)
 
     # все цены по позициям: {pm_id: [(price, supplier_id), ...]}
     by_pm: dict[int, list] = {}
@@ -407,76 +433,225 @@ class PortalSaveItem(BaseModel):
 
 class PortalSaveBody(BaseModel):
     items: list[PortalSaveItem]
+    supplier_id: Optional[int] = None   # для мастер-входа закупщика
+
+
+def _cat_unit_map(db: Session) -> dict[int, str]:
+    return {pm.id: cat.unit_type for pm, cat in db.execute(
+        select(ProductMaster, Category).join(Category, Category.id == ProductMaster.category_id)
+    ).all()}
+
+
+def _apply_live_price(db: Session, sup_id: int, pm_id: int, price: Optional[float],
+                      comment: Optional[str], unit_type: str, now: datetime):
+    """Записывает цену в ЖИВЫЕ price_quotes (видят шефы) + история/изменения.
+    price None/<=0 → удаляет позицию у поставщика. Возвращает 'saved'/'removed'/None."""
+    existing = db.execute(
+        select(PriceQuote).where(PriceQuote.supplier_id == sup_id)
+        .where(PriceQuote.product_master_id == pm_id)
+    ).scalar_one_or_none()
+    if price is None or price <= 0:
+        if existing:
+            db.delete(existing)
+            return "removed"
+        return None
+    if existing:
+        if existing.unit_price != price:
+            db.add(PriceHistory(supplier_id=sup_id, product_master_id=pm_id,
+                                unit_price=existing.unit_price, captured_at=existing.captured_at))
+            if existing.unit_price and existing.unit_price >= 2 and price >= 2:
+                delta = (price - existing.unit_price) / existing.unit_price * 100
+                if abs(delta) <= 200:
+                    db.add(PriceChange(supplier_id=sup_id, product_master_id=pm_id,
+                                       old_price=existing.unit_price, new_price=price,
+                                       delta_pct=delta, changed_at=now))
+        existing.unit_price = price
+        existing.unit_type = unit_type
+        existing.supplier_comment = comment
+        existing.captured_at = now
+    else:
+        db.add(PriceQuote(supplier_id=sup_id, product_master_id=pm_id,
+                          unit_price=price, unit_type=unit_type,
+                          supplier_comment=comment, captured_at=now))
+    return "saved"
 
 
 @app.post("/api/portal/save")
 def portal_save(body: PortalSaveBody, db: Session = Depends(get_db),
-                user: User = Depends(require_role("supplier"))):
-    """Сохраняет цены и комментарии поставщика. Пустая цена → удаляет позицию
-    у поставщика (он её больше не предлагает)."""
-    if not user.supplier_id:
-        raise HTTPException(400, "Аккаунт не привязан к поставщику")
-    sup = db.get(Supplier, user.supplier_id)
-    if not sup:
-        raise HTTPException(404, "Поставщик не найден")
-
-    # unit_type по категории мастер-позиции
-    cat_unit = {}
-    for pm, cat in db.execute(
-        select(ProductMaster, Category).join(Category, Category.id == ProductMaster.category_id)
-    ).all():
-        cat_unit[pm.id] = cat.unit_type
-
+                user: User = Depends(current_user)):
+    """Сохранение цен из портала.
+    - Поставщик: цены идут в pending_price_changes (на проверку закупщику),
+      в price_quotes НЕ попадают пока закупщик не подтвердит.
+    - Закупщик (мастер-вход): пишет сразу в живые price_quotes (он же и есть
+      контроль) — без очереди на проверку.
+    """
+    sup = _resolve_portal_supplier(db, user, body.supplier_id)
+    cat_unit = _cat_unit_map(db)
     now = datetime.utcnow()
-    saved, removed = 0, 0
+    is_buyer = user.role == "buyer"
+    saved = pending = removed = 0
+
     for it in body.items:
         pm = db.get(ProductMaster, it.product_id)
         if not pm:
             continue
-        existing = db.execute(
-            select(PriceQuote).where(PriceQuote.supplier_id == sup.id)
-            .where(PriceQuote.product_master_id == it.product_id)
-        ).scalar_one_or_none()
-
-        price = it.price
-        if price is None or price <= 0:
-            # пустая цена — убираем позицию у поставщика
-            if existing:
-                db.delete(existing)
-                removed += 1
-            continue
-
-        comment = (it.comment or "").strip() or None
         unit_type = cat_unit.get(it.product_id, "pkg")
-        if existing:
-            if existing.unit_price != price:
-                # фиксируем изменение цены (та же логика что в importer)
-                db.add(PriceHistory(
-                    supplier_id=sup.id, product_master_id=it.product_id,
-                    unit_price=existing.unit_price, captured_at=existing.captured_at,
-                ))
-                if existing.unit_price and existing.unit_price >= 2 and price >= 2:
-                    delta = (price - existing.unit_price) / existing.unit_price * 100
-                    if abs(delta) <= 200:
-                        db.add(PriceChange(
-                            supplier_id=sup.id, product_master_id=it.product_id,
-                            old_price=existing.unit_price, new_price=price,
-                            delta_pct=delta, changed_at=now,
-                        ))
-            existing.unit_price = price
-            existing.unit_type = unit_type
-            existing.supplier_comment = comment
-            existing.captured_at = now
+        price = it.price
+        comment = (it.comment or "").strip() or None
+
+        if is_buyer:
+            r = _apply_live_price(db, sup.id, it.product_id, price, comment, unit_type, now)
+            if r == "saved": saved += 1
+            elif r == "removed": removed += 1
         else:
-            db.add(PriceQuote(
-                supplier_id=sup.id, product_master_id=it.product_id,
-                unit_price=price, unit_type=unit_type,
-                supplier_comment=comment, captured_at=now,
-            ))
-        saved += 1
+            # поставщик → pending (upsert). Сохраняем старую живую цену для сравнения.
+            live = db.execute(
+                select(PriceQuote).where(PriceQuote.supplier_id == sup.id)
+                .where(PriceQuote.product_master_id == it.product_id)
+            ).scalar_one_or_none()
+            existing_pending = db.execute(
+                select(PendingPriceChange).where(PendingPriceChange.supplier_id == sup.id)
+                .where(PendingPriceChange.product_master_id == it.product_id)
+            ).scalar_one_or_none()
+            new_price = price if (price and price > 0) else None
+            old_price = live.unit_price if live else None
+            # Если значение совпадает с живым и нет смысла в pending — пропускаем/чистим
+            if new_price == old_price and (comment or "") == ((live.supplier_comment if live else "") or ""):
+                if existing_pending:
+                    db.delete(existing_pending)
+                continue
+            if existing_pending:
+                existing_pending.new_price = new_price
+                existing_pending.new_comment = comment
+                existing_pending.old_price = old_price
+                existing_pending.unit_type = unit_type
+                existing_pending.created_at = now
+            else:
+                db.add(PendingPriceChange(
+                    supplier_id=sup.id, product_master_id=it.product_id,
+                    new_price=new_price, new_comment=comment,
+                    old_price=old_price, unit_type=unit_type, created_at=now,
+                ))
+            pending += 1
 
     db.commit()
-    return {"saved": saved, "removed": removed}
+    return {"saved": saved, "removed": removed, "pending": pending, "is_buyer": is_buyer}
+
+
+# ============ АЦЕПТ: ревью изменений цен закупщиком ============
+
+@app.get("/api/pending-changes")
+def list_pending_changes(db: Session = Depends(get_db),
+                         user: User = Depends(require_role("buyer"))):
+    """Все НЕподтверждённые изменения цен от поставщиков, сгруппированы по
+    поставщику. Закупщик проверяет (↑↓) и принимает/отклоняет."""
+    rows = db.execute(
+        select(PendingPriceChange, Supplier, ProductMaster, Category)
+        .join(Supplier, Supplier.id == PendingPriceChange.supplier_id)
+        .join(ProductMaster, ProductMaster.id == PendingPriceChange.product_master_id)
+        .join(Category, Category.id == ProductMaster.category_id)
+        .order_by(Supplier.name, Category.name, ProductMaster.name)
+    ).all()
+    by_sup: dict[int, dict] = {}
+    for pc, sup, pm, cat in rows:
+        s = by_sup.setdefault(sup.id, {"supplier_id": sup.id, "supplier": sup.name, "items": []})
+        delta_pct = None
+        if pc.old_price and pc.new_price and pc.old_price > 0:
+            delta_pct = round((pc.new_price - pc.old_price) / pc.old_price * 100, 1)
+        s["items"].append({
+            "id": pc.id, "product_id": pm.id, "product": pm.name, "category": cat.name,
+            "old_price": pc.old_price, "new_price": pc.new_price,
+            "comment": pc.new_comment, "unit_type": pc.unit_type, "delta_pct": delta_pct,
+        })
+    result = sorted(by_sup.values(), key=lambda x: x["supplier"].casefold())
+    return {"suppliers": result, "total": sum(len(s["items"]) for s in result)}
+
+
+class PendingActionBody(BaseModel):
+    ids: list[int]
+
+
+@app.post("/api/pending-changes/approve")
+def approve_pending(body: PendingActionBody, db: Session = Depends(get_db),
+                    user: User = Depends(require_role("buyer"))):
+    """Принимает выбранные pending-изменения → применяет к живым ценам."""
+    now = datetime.utcnow()
+    cat_unit = _cat_unit_map(db)
+    applied = 0
+    for pid in body.ids:
+        pc = db.get(PendingPriceChange, pid)
+        if not pc:
+            continue
+        unit_type = pc.unit_type or cat_unit.get(pc.product_master_id, "pkg")
+        _apply_live_price(db, pc.supplier_id, pc.product_master_id, pc.new_price,
+                          pc.new_comment, unit_type, now)
+        db.delete(pc)
+        applied += 1
+    db.commit()
+    return {"applied": applied}
+
+
+@app.post("/api/pending-changes/reject")
+def reject_pending(body: PendingActionBody, db: Session = Depends(get_db),
+                   user: User = Depends(require_role("buyer"))):
+    """Отклоняет выбранные pending-изменения (просто удаляет, живые цены не трогаются)."""
+    rejected = 0
+    for pid in body.ids:
+        pc = db.get(PendingPriceChange, pid)
+        if pc:
+            db.delete(pc)
+            rejected += 1
+    db.commit()
+    return {"rejected": rejected}
+
+
+# ============ ФОТО-ЭТАЛОНЫ ПОЗИЦИЙ ============
+# Закупщик грузит фото-эталон позиции (Пармезан vs Реджанито — чтобы не путали).
+# Видят и шефы, и поставщики. Хранятся файлами в /data/photos.
+
+_PHOTOS_DIR = Path(os.environ.get("DB_PATH", "/data/data.db")).parent / "photos"
+_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@app.post("/api/products/{product_id}/photo")
+async def upload_product_photo(product_id: int, file: UploadFile = File(...),
+                               db: Session = Depends(get_db),
+                               user: User = Depends(require_role("buyer"))):
+    """Загрузка фото-эталона позиции (только закупщик)."""
+    pm = db.get(ProductMaster, product_id)
+    if not pm:
+        raise HTTPException(404, "Позиция не найдена")
+    data = await file.read()
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(400, "Файл больше 8 МБ")
+    if not data:
+        raise HTTPException(400, "Пустой файл")
+    (_PHOTOS_DIR / f"{product_id}.jpg").write_bytes(data)
+    pm.has_photo = True
+    db.commit()
+    return {"ok": True, "product_id": product_id}
+
+
+@app.get("/api/products/{product_id}/photo")
+def get_product_photo(product_id: int):
+    """Отдаёт фото позиции. Доступно всем залогиненным (шеф, поставщик, закупщик)."""
+    p = _PHOTOS_DIR / f"{product_id}.jpg"
+    if not p.exists():
+        raise HTTPException(404, "Нет фото")
+    return FileResponse(str(p), media_type="image/jpeg")
+
+
+@app.delete("/api/products/{product_id}/photo")
+def delete_product_photo(product_id: int, db: Session = Depends(get_db),
+                         user: User = Depends(require_role("buyer"))):
+    pm = db.get(ProductMaster, product_id)
+    if pm:
+        pm.has_photo = False
+        db.commit()
+    p = _PHOTOS_DIR / f"{product_id}.jpg"
+    if p.exists():
+        p.unlink()
+    return {"ok": True}
 
 
 # ============ АДМИНКА АККАУНТОВ ПОСТАВЩИКОВ (для закупщика) ============
@@ -611,7 +786,7 @@ def get_top2(
     for pq, pm, cat, sup in rows:
         item = items_map.setdefault(pm.id, {
             "product_id": pm.id, "product": pm.name, "category": cat.name,
-            "unit_type": pq.unit_type, "quotes": [],
+            "unit_type": pq.unit_type, "has_photo": pm.has_photo, "quotes": [],
         })
         item["quotes"].append({
             "supplier_id": sup.id, "supplier": sup.name,
@@ -631,6 +806,7 @@ def get_top2(
             "product": item["product"],
             "category": item["category"],
             "unit_type": item["unit_type"],
+            "has_photo": item.get("has_photo", False),
             "top1": top1,
             "top2": top2,
             "top3": top3,

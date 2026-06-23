@@ -163,6 +163,11 @@
               <option value="">все периоды</option>
             </select>
           </div>
+          <button onclick="openPendingReview()" class="relative flex items-center gap-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 px-3 py-2 rounded-lg text-sm font-medium buyer-only">
+            <i data-lucide="inbox" class="w-4 h-4"></i>
+            На проверке
+            <span id="pending-nav-badge" style="display:none" class="ml-1 text-xs bg-amber-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
+          </button>
           <button onclick="runRecalc()" id="recalc-btn" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
             <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             Запустить пересчёт
@@ -1329,11 +1334,12 @@
     </div>
     <div class="flex items-center gap-2 sm:gap-3">
       <div class="text-xs text-slate-500 hidden sm:block" id="portal-progress">…</div>
+      <button id="portal-back-btn" onclick="exitMasterPortal()" style="display:none" class="text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg px-3 py-2 font-medium">← Выйти</button>
       <button id="portal-save-btn" onclick="portalSave()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
         <i data-lucide="save" class="w-4 h-4"></i>
         <span>Сохранить</span>
       </button>
-      <button onclick="doLogout()" class="text-slate-400 hover:text-slate-700 p-2" title="Выйти">
+      <button id="portal-logout-btn" onclick="doLogout()" class="text-slate-400 hover:text-slate-700 p-2" title="Выйти">
         <i data-lucide="log-out" class="w-4 h-4"></i>
       </button>
     </div>
@@ -1938,7 +1944,7 @@
       const commentLine = c => c ? `<div class="mt-1"><span class="inline-block text-[11px] font-medium text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">💬 ${safeText(c)}</span></div>` : '';
       const t3 = item.top3;
       tr.innerHTML = `
-        <td class="px-6 py-3.5 font-medium">${item.product}</td>
+        <td class="px-6 py-3.5 font-medium">${item.product}${item.has_photo ? ` <button type="button" onclick="openPhoto(${item.product_id}, '${safeText(item.product).replace(/'/g,'&#39;')}')" class="text-indigo-500 hover:text-indigo-700 align-middle ml-1" title="Фото"><i data-lucide="image" class="w-3.5 h-3.5 inline"></i></button>` : ''}</td>
         <td class="px-6 py-3.5"><span class="text-xs bg-${color}-50 text-${color}-700 px-2 py-0.5 rounded">${item.category}</span></td>
         <td class="px-6 py-3.5">
           <div class="font-semibold text-slate-900">${item.top1.price.toFixed(2)} ${unit}</div>
@@ -2550,13 +2556,14 @@
             ? `<span class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">${safe(s.username)}</span>`
             : `<span class="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">выключен: ${safe(s.username)}</span>`)
         : `<span class="text-xs text-slate-400">нет логина</span>`;
+      const enterBtn = `<button onclick="document.getElementById('sup-acc-modal').remove(); enterSupplierPortal(${s.supplier_id})" class="text-xs bg-indigo-600 text-white px-2.5 py-1 rounded mr-3">Войти как →</button>`;
       const createBtn = `<button onclick="createSupplierLogin(${s.supplier_id})" class="text-xs text-indigo-600 hover:underline">${s.has_login ? 'сбросить пароль' : 'создать логин'}</button>`;
       const toggleBtn = s.has_login ? `<button onclick="toggleSupplierLogin(${s.supplier_id})" class="text-xs text-slate-500 hover:underline ml-3">${s.is_active ? 'выключить' : 'включить'}</button>` : '';
       return `
         <tr class="hover:bg-slate-50">
           <td class="px-4 py-2 text-sm">${safe(s.name)}</td>
           <td class="px-4 py-2">${badge}</td>
-          <td class="px-4 py-2 text-right">${createBtn}${toggleBtn}</td>
+          <td class="px-4 py-2 text-right">${s.has_login ? enterBtn : ''}${createBtn}${toggleBtn}</td>
         </tr>`;
     }).join('');
     const html = `
@@ -3564,6 +3571,9 @@
   let _portalSearch = '';
   let _portalMode = 'fill';   // 'fill' | 'market'
   let _portalMarket = null;   // данные анонимного Топ-3 рынка
+  let _portalAsSupplierId = null;  // !=null → закупщик в режиме мастер-входа за поставщика
+
+  function _portalQS() { return _portalAsSupplierId ? `?supplier_id=${_portalAsSupplierId}` : ''; }
 
   function portalSetMode(mode) {
     _portalMode = mode;
@@ -3577,15 +3587,23 @@
       ? 'Здесь видно <b>3 лучших цены рынка</b> по каждой позиции (без имён конкурентов) и ваше место. Хотите быть первым — снижайте цену во вкладке «Мои цены».'
       : 'Вводите <b>цену</b> напротив товаров, которые вы поставляете. Можно добавить комментарий (страна, фасовка). Пустая цена — товар у вас отсутствует. Не забывайте <b>сохранять</b>.';
     if (mode === 'market' && !_portalMarket) {
-      tryFetch(`${API_BASE}/portal/market`).then(d => { _portalMarket = d; _renderPortalPositions(); });
+      tryFetch(`${API_BASE}/portal/market${_portalQS()}`).then(d => { _portalMarket = d; _renderPortalPositions(); });
     } else {
       _renderPortalPositions();
     }
   }
   window.portalSetMode = portalSetMode;
 
-  async function enterSupplierPortal() {
-    const data = await tryFetch(`${API_BASE}/portal/positions`);
+  async function enterSupplierPortal(asSupplierId) {
+    // asSupplierId задан → закупщик зашёл за поставщика (мастер-вход)
+    _portalAsSupplierId = asSupplierId || null;
+    _portalMode = 'fill';
+    _portalMarket = null;
+    // показываем портал (на случай мастер-входа поверх интерфейса закупщика)
+    document.getElementById('app-shell').style.display = 'none';
+    document.getElementById('supplier-portal').classList.remove('hidden');
+
+    const data = await tryFetch(`${API_BASE}/portal/positions${_portalQS()}`);
     if (!data) {
       document.getElementById('portal-positions').innerHTML =
         '<div class="p-8 text-center text-slate-500">Не удалось загрузить позиции. Обновите страницу.</div>';
@@ -3594,7 +3612,22 @@
     _portalData = data;
     _portalDirty = {};
     _portalCat = data.categories.length ? data.categories[0].category : null;
-    document.getElementById('portal-supplier-name').textContent = data.supplier;
+    document.getElementById('portal-supplier-name').textContent =
+      data.is_buyer ? `${data.supplier} (режим закупщика)` : data.supplier;
+
+    // Кнопка «← Выйти» для мастер-входа (закупщик возвращается в свой интерфейс)
+    const backBtn = document.getElementById('portal-back-btn');
+    if (backBtn) backBtn.style.display = data.is_buyer ? '' : 'none';
+    const logoutBtn = document.getElementById('portal-logout-btn');
+    if (logoutBtn) logoutBtn.style.display = data.is_buyer ? 'none' : '';
+
+    // баннер для закупщика
+    const banner = document.getElementById('portal-banner');
+    if (data.is_buyer && banner) {
+      banner.innerHTML = '⚙️ Вы заполняете цены <b>за поставщика</b>. Ваши правки применяются <b>сразу</b> (без проверки).';
+      banner.className = 'bg-amber-50 border-b border-amber-200 px-4 sm:px-8 py-2.5 text-xs text-amber-800';
+    }
+
     _renderPortalTabs();
     _renderPortalProgress();
     _renderPortalPositions();
@@ -3606,6 +3639,14 @@
     }
     if (window.lucide) lucide.createIcons();
   }
+
+  function exitMasterPortal() {
+    // закупщик выходит из режима поставщика → обратно в свой интерфейс
+    _portalAsSupplierId = null;
+    document.getElementById('supplier-portal').classList.add('hidden');
+    document.getElementById('app-shell').style.display = '';
+  }
+  window.exitMasterPortal = exitMasterPortal;
 
   function _renderPortalTabs() {
     const wrap = document.getElementById('portal-cat-tabs');
@@ -3661,12 +3702,21 @@
     if (!positions.length) {
       html += '<div class="p-8 text-center text-slate-400 text-sm">Ничего не найдено</div>';
     }
+    const isBuyer = !!(_portalData && _portalData.is_buyer);
     for (const p of positions) {
       const v = _portalValue(p);
       const hasDirty = !!_portalDirty[p.product_id];
+      const pendingBadge = (p.pending && !hasDirty)
+        ? '<span class="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded ml-2">на проверке</span>' : '';
+      const photoBtn = p.has_photo
+        ? `<button type="button" onclick="openPhoto(${p.product_id}, '${safe(p.product).replace(/'/g,"&#39;")}')" class="text-indigo-600 hover:text-indigo-800" title="Фото"><i data-lucide="image" class="w-4 h-4"></i></button>`
+        : (isBuyer ? `<label class="text-slate-300 hover:text-indigo-600 cursor-pointer" title="Загрузить фото"><i data-lucide="image-plus" class="w-4 h-4"></i><input type="file" accept="image/*" class="hidden" onchange="uploadPhoto(${p.product_id}, this)"></label>` : '');
       html += `
         <div class="bg-white rounded-lg border ${hasDirty ? 'border-amber-300' : 'border-slate-200'} p-3">
-          <div class="text-sm font-medium text-slate-900 mb-2">${safe(p.product)}</div>
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <div class="text-sm font-medium text-slate-900">${safe(p.product)}${pendingBadge}</div>
+            <div class="flex-shrink-0">${photoBtn}</div>
+          </div>
           <div class="flex gap-2 items-center">
             <div class="relative w-32 flex-shrink-0">
               <input type="number" inputmode="decimal" step="0.01" min="0"
@@ -3760,33 +3810,173 @@
     if (!items.length) { alert('Нет изменений для сохранения'); return; }
     const btn = document.getElementById('portal-save-btn');
     if (btn) { btn.disabled = true; btn.querySelector('span').textContent = 'Сохраняю…'; }
+    const payload = { items };
+    if (_portalAsSupplierId) payload.supplier_id = _portalAsSupplierId;
     const resp = await fetch(`${API_BASE}/portal/save`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      credentials: 'include', body: JSON.stringify({ items }),
+      credentials: 'include', body: JSON.stringify(payload),
     });
     if (btn) { btn.disabled = false; btn.querySelector('span').textContent = 'Сохранить'; }
     if (resp.status === 401) { showLogin(); return; }
     if (!resp.ok) { alert('Ошибка сохранения: ' + resp.status); return; }
     const r = await resp.json();
-    // применяем dirty к данным и сбрасываем
+    // применяем dirty к данным. Для поставщика помечаем как pending (на проверке).
     for (const [pid, v] of Object.entries(_portalDirty)) {
       for (const c of _portalData.categories) {
         const p = c.positions.find(x => x.product_id === +pid);
-        if (p) { p.price = (v.price === '' ? null : v.price); p.comment = v.comment || ''; }
+        if (p) {
+          p.price = (v.price === '' ? null : v.price);
+          p.comment = v.comment || '';
+          p.pending = !r.is_buyer;  // правки поставщика → на проверке
+        }
       }
     }
     _portalDirty = {};
-    _portalMarket = null; // цены изменились — рынок пересчитать при следующем открытии
+    _portalMarket = null;
     _renderPortalTabs(); _renderPortalProgress(); _renderPortalPositions();
     if (window.lucide) lucide.createIcons();
-    // короткий тост
     if (btn) {
       const span = btn.querySelector('span'); const old = span.textContent;
-      span.textContent = `✓ Сохранено (${r.saved})`;
-      setTimeout(() => { span.textContent = old; }, 1800);
+      span.textContent = r.is_buyer ? `✓ Сохранено (${r.saved})` : `✓ Отправлено на проверку (${r.pending})`;
+      setTimeout(() => { span.textContent = old; }, 2200);
     }
   }
   window.portalSave = portalSave;
+
+  // ============ Фото-эталоны позиций ============
+  function openPhoto(productId, name) {
+    document.getElementById('photo-lightbox')?.remove();
+    const safe = (name || '').replace(/[<>"]/g, '');
+    const isBuyer = CURRENT_USER && CURRENT_USER.role === 'buyer';
+    const html = `
+      <div id="photo-lightbox" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[60] flex items-center justify-center p-6" onclick="if(event.target===this)this.remove()">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden">
+          <div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div class="font-semibold text-slate-900 text-sm">${safe}</div>
+            <button onclick="document.getElementById('photo-lightbox').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+          </div>
+          <img src="${API_BASE}/products/${productId}/photo" class="w-full max-h-[70vh] object-contain bg-slate-50" alt="${safe}">
+          ${isBuyer ? `<div class="px-5 py-3 border-t border-slate-100 flex justify-between">
+            <label class="text-xs text-indigo-600 hover:underline cursor-pointer">Заменить фото<input type="file" accept="image/*" class="hidden" onchange="uploadPhoto(${productId}, this)"></label>
+            <button onclick="deletePhoto(${productId})" class="text-xs text-rose-600 hover:underline">Удалить фото</button>
+          </div>` : ''}
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    if (window.lucide) lucide.createIcons();
+  }
+  window.openPhoto = openPhoto;
+
+  async function uploadPhoto(productId, input) {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    const fd = new FormData();
+    fd.append('file', f);
+    const resp = await fetch(`${API_BASE}/products/${productId}/photo`, { method: 'POST', credentials: 'include', body: fd });
+    if (!resp.ok) { alert('Ошибка загрузки фото: ' + resp.status); return; }
+    document.getElementById('photo-lightbox')?.remove();
+    // обновим флаг в портальных данных
+    if (_portalData) for (const c of _portalData.categories) { const p = c.positions.find(x=>x.product_id===productId); if (p) p.has_photo = true; }
+    if (_portalMode === 'fill') _renderPortalPositions();
+    if (window.lucide) lucide.createIcons();
+    alert('Фото загружено');
+  }
+  window.uploadPhoto = uploadPhoto;
+
+  async function deletePhoto(productId) {
+    if (!confirm('Удалить фото?')) return;
+    await fetch(`${API_BASE}/products/${productId}/photo`, { method: 'DELETE', credentials: 'include' });
+    document.getElementById('photo-lightbox')?.remove();
+    if (_portalData) for (const c of _portalData.categories) { const p = c.positions.find(x=>x.product_id===productId); if (p) p.has_photo = false; }
+    if (_portalMode === 'fill') _renderPortalPositions();
+    if (window.lucide) lucide.createIcons();
+  }
+  window.deletePhoto = deletePhoto;
+
+  // ============ Ацепт: ревью изменений цен (закупщик) ============
+  async function openPendingReview() {
+    const data = await tryFetch(`${API_BASE}/pending-changes`);
+    if (!data) { alert('Не удалось загрузить'); return; }
+    _renderPendingReview(data);
+  }
+  window.openPendingReview = openPendingReview;
+
+  function _renderPendingReview(data) {
+    document.getElementById('pending-modal')?.remove();
+    const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const fmt = v => v == null ? '—' : (Number.isInteger(v) ? v : v.toFixed(2));
+    let body = '';
+    if (!data.total) {
+      body = '<div class="p-10 text-center text-slate-400 text-sm">Нет изменений на проверке</div>';
+    } else {
+      for (const s of data.suppliers) {
+        const allIds = s.items.map(i => i.id).join(',');
+        body += `<div class="mb-4">
+          <div class="flex items-center justify-between px-1 mb-1.5">
+            <div class="font-semibold text-slate-900 text-sm">${safe(s.supplier)} <span class="text-slate-400 font-normal">${s.items.length}</span></div>
+            <div class="flex gap-2">
+              <button onclick="pendingAct('approve', [${allIds}])" class="text-xs bg-emerald-600 text-white px-2.5 py-1 rounded">Принять все</button>
+              <button onclick="pendingAct('reject', [${allIds}])" class="text-xs text-slate-500 hover:text-rose-600">Отклонить все</button>
+            </div>
+          </div>
+          <div class="border border-slate-200 rounded-lg overflow-hidden">`;
+        for (const it of s.items) {
+          const unit = it.unit_type === 'kg_or_l' ? '₽/кг·л' : '₽/упак';
+          const dpct = it.delta_pct;
+          const dCls = dpct == null ? 'text-slate-400' : (dpct > 0 ? 'text-rose-600' : 'text-emerald-600');
+          const dTxt = dpct == null ? 'новая' : (dpct>0?'+':'')+dpct+'%';
+          const newTxt = it.new_price == null ? '<span class="text-slate-400">убрал</span>' : `${fmt(it.new_price)} ${unit}`;
+          const cmt = it.comment ? `<div class="text-[10px] text-amber-700">💬 ${safe(it.comment)}</div>` : '';
+          body += `<div class="flex items-center gap-2 px-3 py-2 border-b border-slate-100 last:border-0 text-sm">
+            <div class="flex-1 min-w-0"><div class="truncate">${safe(it.product)}</div><div class="text-[10px] text-slate-400">${safe(it.category)}</div>${cmt}</div>
+            <div class="text-right text-slate-500 w-24">${it.old_price==null?'—':fmt(it.old_price)} →</div>
+            <div class="text-right font-semibold w-28">${newTxt}</div>
+            <div class="text-right ${dCls} w-16 text-xs font-medium">${dTxt}</div>
+            <div class="flex gap-1 w-20 justify-end">
+              <button onclick="pendingAct('approve',[${it.id}])" class="text-emerald-600 hover:bg-emerald-50 rounded p-1" title="Принять"><i data-lucide="check" class="w-4 h-4"></i></button>
+              <button onclick="pendingAct('reject',[${it.id}])" class="text-rose-500 hover:bg-rose-50 rounded p-1" title="Отклонить"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+          </div>`;
+        }
+        body += `</div></div>`;
+      }
+    }
+    const html = `
+      <div id="pending-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col">
+          <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <div class="font-semibold text-slate-900 text-lg">Изменения цен на проверке</div>
+              <div class="text-xs text-slate-500 mt-0.5">Поставщики ввели цены. Проверьте (вдруг за упаковку вместо кг) и примите — тогда цены увидят шефы.</div>
+            </div>
+            <button onclick="document.getElementById('pending-modal').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+          </div>
+          <div class="overflow-y-auto p-5">${body}</div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    if (window.lucide) lucide.createIcons();
+  }
+
+  async function pendingAct(action, ids) {
+    const resp = await fetch(`${API_BASE}/pending-changes/${action}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      credentials: 'include', body: JSON.stringify({ ids }),
+    });
+    if (!resp.ok) { alert('Ошибка: ' + resp.status); return; }
+    await openPendingReview();  // перерисовать
+    _updatePendingBadge();
+  }
+  window.pendingAct = pendingAct;
+
+  async function _updatePendingBadge() {
+    const data = await tryFetch(`${API_BASE}/pending-changes`);
+    const badge = document.getElementById('pending-nav-badge');
+    if (badge && data) {
+      badge.textContent = data.total || '';
+      badge.style.display = data.total ? '' : 'none';
+    }
+  }
 
   async function initApp() {
     hideNotReadyPages();
@@ -3796,6 +3986,7 @@
     hydrateDeviations();
     hydrateSuppliers();
     hydrateMapping();
+    if (CURRENT_USER && CURRENT_USER.role === 'buyer') _updatePendingBadge();
 
     tryFetch(`${API_BASE}/dashboard/summary`).then(s => {
       if (!s) return;
