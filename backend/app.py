@@ -350,6 +350,51 @@ def portal_positions(db: Session = Depends(get_db),
     }
 
 
+@app.get("/api/portal/market")
+def portal_market(db: Session = Depends(get_db),
+                  user: User = Depends(require_role("supplier"))):
+    """Анонимный Топ-3 рынка для поставщика: по каждой позиции 3 минимальные цены
+    БЕЗ имён конкурентов + своя цена и своё место. Мотивирует снижать цену."""
+    if not user.supplier_id:
+        raise HTTPException(400, "Аккаунт не привязан к поставщику")
+    sup = db.get(Supplier, user.supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+
+    # все цены по позициям: {pm_id: [(price, supplier_id), ...]}
+    by_pm: dict[int, list] = {}
+    for pq in db.execute(select(PriceQuote)).scalars():
+        by_pm.setdefault(pq.product_master_id, []).append((pq.unit_price, pq.supplier_id))
+
+    rows = db.execute(
+        select(ProductMaster, Category)
+        .join(Category, Category.id == ProductMaster.category_id)
+        .order_by(Category.name, ProductMaster.name)
+    ).all()
+
+    cats: dict[str, dict] = {}
+    for pm, cat in rows:
+        quotes = sorted(by_pm.get(pm.id, []), key=lambda x: x[0])
+        prices = [q[0] for q in quotes]
+        my_price = next((p for p, sid in quotes if sid == sup.id), None)
+        my_rank = None
+        if my_price is not None:
+            my_rank = next((i + 1 for i, (p, sid) in enumerate(quotes) if sid == sup.id), None)
+        c = cats.setdefault(cat.name, {"category": cat.name, "unit_type": cat.unit_type, "positions": []})
+        c["positions"].append({
+            "product_id": pm.id,
+            "product": pm.name,
+            "top1": prices[0] if len(prices) > 0 else None,
+            "top2": prices[1] if len(prices) > 1 else None,
+            "top3": prices[2] if len(prices) > 2 else None,
+            "my_price": my_price,
+            "my_rank": my_rank,
+            "suppliers_count": len(prices),
+        })
+    cats_list = sorted(cats.values(), key=lambda x: x["category"].casefold())
+    return {"supplier": sup.name, "categories": cats_list}
+
+
 class PortalSaveItem(BaseModel):
     product_id: int
     price: Optional[float] = None
