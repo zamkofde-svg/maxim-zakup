@@ -2916,7 +2916,7 @@
       const cell = (v) => v ? `<span class="text-slate-700">${v}</span>` : '<span class="text-slate-400 italic">—</span>';
       const photoCell = item.has_photo
         ? `<button type="button" onclick="openPhoto(${item.id}, '${safeAttr(item.product)}')" class="text-indigo-600 hover:text-indigo-800" title="Открыть / заменить фото"><i data-lucide="image" class="w-4 h-4"></i></button>`
-        : `<label class="text-slate-300 hover:text-indigo-600 cursor-pointer inline-flex" title="Загрузить фото"><i data-lucide="image-plus" class="w-4 h-4"></i><input type="file" accept="image/*" class="hidden" onchange="uploadPhoto(${item.id}, this)"></label>`;
+        : `<label class="text-slate-300 hover:text-indigo-600 cursor-pointer inline-flex" title="Загрузить фото"><i data-lucide="image-plus" class="w-4 h-4"></i><input type="file" accept="image/*" class="hidden" onchange="uploadPhoto(${item.id}, this, '${safeAttr(item.product)}')"></label>`;
       tr.innerHTML = `
         <td class="px-6 py-3">
           <div class="font-medium text-slate-900">${item.product.slice(0, 80)}</div>
@@ -3738,7 +3738,7 @@
         ? '<span class="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded ml-2">на проверке</span>' : '';
       const photoBtn = p.has_photo
         ? `<button type="button" onclick="openPhoto(${p.product_id}, '${safe(p.product).replace(/'/g,"&#39;")}')" class="text-indigo-600 hover:text-indigo-800" title="Фото"><i data-lucide="image" class="w-4 h-4"></i></button>`
-        : (isBuyer ? `<label class="text-slate-300 hover:text-indigo-600 cursor-pointer" title="Загрузить фото"><i data-lucide="image-plus" class="w-4 h-4"></i><input type="file" accept="image/*" class="hidden" onchange="uploadPhoto(${p.product_id}, this)"></label>` : '');
+        : (isBuyer ? `<label class="text-slate-300 hover:text-indigo-600 cursor-pointer" title="Загрузить фото"><i data-lucide="image-plus" class="w-4 h-4"></i><input type="file" accept="image/*" class="hidden" onchange="uploadPhoto(${p.product_id}, this, '${safe(p.product).replace(/'/g,"&#39;")}')"></label>` : '');
       html += `
         <div class="bg-white rounded-lg border ${hasDirty ? 'border-amber-300' : 'border-slate-200'} p-3">
           <div class="flex items-center justify-between gap-2 mb-2">
@@ -3883,9 +3883,9 @@
             <div class="font-semibold text-slate-900 text-sm">${safe}</div>
             <button onclick="document.getElementById('photo-lightbox').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
           </div>
-          <img src="${API_BASE}/products/${productId}/photo" class="w-full max-h-[70vh] object-contain bg-slate-50" alt="${safe}">
+          <img src="${API_BASE}/products/${productId}/photo?t=${Date.now()}" class="w-full max-h-[70vh] object-contain bg-slate-50" alt="${safe}" onerror="this.outerHTML='&lt;div class=\\'p-10 text-center text-slate-400 text-sm\\'&gt;Не удалось показать фото. Возможно формат HEIC — пересохраните как JPG/PNG.&lt;/div&gt;'">
           ${isBuyer ? `<div class="px-5 py-3 border-t border-slate-100 flex justify-between">
-            <label class="text-xs text-indigo-600 hover:underline cursor-pointer">Заменить фото<input type="file" accept="image/*" class="hidden" onchange="uploadPhoto(${productId}, this)"></label>
+            <label class="text-xs text-indigo-600 hover:underline cursor-pointer">Заменить фото<input type="file" accept="image/*" class="hidden" onchange="uploadPhoto(${productId}, this, '${safe.replace(/'/g,'&#39;')}')"></label>
             <button onclick="deletePhoto(${productId})" class="text-xs text-rose-600 hover:underline">Удалить фото</button>
           </div>` : ''}
         </div>
@@ -3895,15 +3895,44 @@
   }
   window.openPhoto = openPhoto;
 
-  async function uploadPhoto(productId, input) {
+  // Простой тост (правый нижний угол)
+  function _toast(msg, isError) {
+    let t = document.getElementById('app-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'app-toast';
+      t.className = 'fixed bottom-5 right-5 z-[70] px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-opacity duration-300';
+      document.body.appendChild(t);
+    }
+    t.className = t.className.replace(/ bg-\S+| text-\S+/g, '');
+    t.classList.add(isError ? 'bg-rose-600' : 'bg-slate-900', 'text-white');
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._hideTimer);
+    t._hideTimer = setTimeout(() => { t.style.opacity = '0'; }, 2600);
+  }
+  window._toast = _toast;
+
+  async function uploadPhoto(productId, input, name) {
     const f = input.files && input.files[0];
     if (!f) return;
+    _toast('Загружаю фото…');
     const fd = new FormData();
     fd.append('file', f);
-    const resp = await fetch(`${API_BASE}/products/${productId}/photo`, { method: 'POST', credentials: 'include', body: fd });
-    if (!resp.ok) { alert('Ошибка загрузки фото: ' + resp.status); return; }
+    let resp;
+    try {
+      resp = await fetch(`${API_BASE}/products/${productId}/photo`, { method: 'POST', credentials: 'include', body: fd });
+    } catch (e) {
+      _toast('Сбой сети при загрузке', true); return;
+    }
+    if (resp.status === 401) { showLogin(); return; }
+    if (!resp.ok) { _toast('Ошибка загрузки: ' + resp.status, true); return; }
     document.getElementById('photo-lightbox')?.remove();
     _afterPhotoChange(productId, true);
+    _toast('✓ Фото загружено');
+    input.value = '';  // чтобы повторный выбор того же файла снова срабатывал
+    // сразу показываем загруженное фото — явное подтверждение
+    openPhoto(productId, name || '');
   }
   window.uploadPhoto = uploadPhoto;
 
