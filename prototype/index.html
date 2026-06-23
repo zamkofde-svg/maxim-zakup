@@ -1140,13 +1140,14 @@
           <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider">
             <tr>
               <th class="px-6 py-3 text-left">Мастер-позиция</th>
+              <th class="px-6 py-3 text-center">Фото</th>
               <th class="px-6 py-3 text-left">SH</th>
               <th class="px-6 py-3 text-left">Chees</th>
               <th class="px-6 py-3 text-left">TEHNIKUM</th>
             </tr>
           </thead>
           <tbody id="mapping-tbody" class="divide-y divide-slate-100">
-            <tr><td colspan="4" class="px-6 py-8 text-center text-slate-400">Загрузка…</td></tr>
+            <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Загрузка…</td></tr>
           </tbody>
         </table>
       </div>
@@ -2904,25 +2905,31 @@
     if (!tbody) return;
     tbody.innerHTML = '';
     if (!data || data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-slate-400">Нет позиций.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Нет позиций.</td></tr>';
       return;
     }
+    const safeAttr = s => (s || '').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
     for (const item of data) {
       const tr = document.createElement('tr');
       const isUnmapped = !item.has_any;
       tr.className = isUnmapped ? 'hover:bg-slate-50 bg-amber-50/20' : 'hover:bg-slate-50';
       const cell = (v) => v ? `<span class="text-slate-700">${v}</span>` : '<span class="text-slate-400 italic">—</span>';
+      const photoCell = item.has_photo
+        ? `<button type="button" onclick="openPhoto(${item.id}, '${safeAttr(item.product)}')" class="text-indigo-600 hover:text-indigo-800" title="Открыть / заменить фото"><i data-lucide="image" class="w-4 h-4"></i></button>`
+        : `<label class="text-slate-300 hover:text-indigo-600 cursor-pointer inline-flex" title="Загрузить фото"><i data-lucide="image-plus" class="w-4 h-4"></i><input type="file" accept="image/*" class="hidden" onchange="uploadPhoto(${item.id}, this)"></label>`;
       tr.innerHTML = `
         <td class="px-6 py-3">
           <div class="font-medium text-slate-900">${item.product.slice(0, 80)}</div>
           <div class="text-xs text-slate-500">${item.category}</div>
         </td>
+        <td class="px-6 py-3 text-center">${photoCell}</td>
         <td class="px-6 py-3">${cell(item.SH)}</td>
         <td class="px-6 py-3">${cell(item.Chees)}</td>
         <td class="px-6 py-3">${cell(item.TEHNIKUM)}</td>
       `;
       tbody.appendChild(tr);
     }
+    if (window.lucide) lucide.createIcons();
   }
 
   // ============ Кнопка «Запустить пересчёт» ============
@@ -3896,11 +3903,7 @@
     const resp = await fetch(`${API_BASE}/products/${productId}/photo`, { method: 'POST', credentials: 'include', body: fd });
     if (!resp.ok) { alert('Ошибка загрузки фото: ' + resp.status); return; }
     document.getElementById('photo-lightbox')?.remove();
-    // обновим флаг в портальных данных
-    if (_portalData) for (const c of _portalData.categories) { const p = c.positions.find(x=>x.product_id===productId); if (p) p.has_photo = true; }
-    if (_portalMode === 'fill') _renderPortalPositions();
-    if (window.lucide) lucide.createIcons();
-    alert('Фото загружено');
+    _afterPhotoChange(productId, true);
   }
   window.uploadPhoto = uploadPhoto;
 
@@ -3908,11 +3911,19 @@
     if (!confirm('Удалить фото?')) return;
     await fetch(`${API_BASE}/products/${productId}/photo`, { method: 'DELETE', credentials: 'include' });
     document.getElementById('photo-lightbox')?.remove();
-    if (_portalData) for (const c of _portalData.categories) { const p = c.positions.find(x=>x.product_id===productId); if (p) p.has_photo = false; }
-    if (_portalMode === 'fill') _renderPortalPositions();
-    if (window.lucide) lucide.createIcons();
+    _afterPhotoChange(productId, false);
   }
   window.deletePhoto = deletePhoto;
+
+  function _afterPhotoChange(productId, hasPhoto) {
+    // обновим флаг в портальных данных
+    if (_portalData) for (const c of _portalData.categories) { const p = c.positions.find(x=>x.product_id===productId); if (p) p.has_photo = hasPhoto; }
+    // перерисуем активную таблицу
+    const onMapping = document.getElementById('page-mapping')?.classList.contains('active');
+    if (onMapping) { renderMappingTable(MAPPING_CURRENT_CAT); }
+    else if (_portalMode === 'fill') { _renderPortalPositions(); }
+    if (window.lucide) lucide.createIcons();
+  }
 
   // ============ Ацепт: страница «Проверка цен» (закупщик) ============
   async function hydratePending() {

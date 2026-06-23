@@ -1071,6 +1071,7 @@ def mapping_items(
             "TEHNIKUM": by_sys.get("TEHNIKUM"),
             "Sorrento": by_sys.get("Sorrento"),
             "has_any": bool(by_sys),
+            "has_photo": pm.has_photo,
         })
     return result
 
