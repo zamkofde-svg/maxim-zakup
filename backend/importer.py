@@ -167,9 +167,13 @@ def seed_static(db: Session):
 
 
 def import_master_matrix(db: Session, path: Path) -> int:
-    """Загружает мастер-матрицу как products_master."""
+    """Загружает мастер-матрицу как products_master.
+    Мастер — источник истины: позиции, которых в нём БОЛЬШЕ НЕТ, удаляются из
+    БД (вместе с ценами поставщиков, историей, алиасами) — чтобы портал
+    поставщика и Топ-3 показывали ровно то, что в мастере."""
     wb = load_workbook(path, data_only=True)
     count = 0
+    seen_pm_ids: set[int] = set()
     for sheet_name in wb.sheetnames:
         cat = db.execute(select(Category).filter_by(name=sheet_name)).scalar_one_or_none()
         if not cat:
@@ -204,7 +208,29 @@ def import_master_matrix(db: Session, path: Path) -> int:
                 # обновим имя на актуальное (вдруг подправили регистр/пробелы)
                 if obj.name != name:
                     obj.name = name
+            seen_pm_ids.add(obj.id)
             count += 1
+
+    # === УДАЛЕНИЕ УСТАРЕВШИХ ПОЗИЦИЙ ===
+    # Всё что есть в БД, но отсутствует в текущем мастере — удаляем вместе с
+    # зависимыми записями (цены, история, изменения, алиасы). Факты — отвязываем
+    # (product_master_id → NULL), они пересчитаются в import_facts.
+    db.flush()
+    all_pm_ids = {pid for (pid,) in db.execute(select(ProductMaster.id)).all()}
+    stale = all_pm_ids - seen_pm_ids
+    if stale:
+        from backend.models import PriceHistory as _PH, PriceChange as _PC, AccountingAlias as _AA
+        db.execute(delete(PriceQuote).where(PriceQuote.product_master_id.in_(stale)))
+        db.execute(delete(_PH).where(_PH.product_master_id.in_(stale)))
+        db.execute(delete(_PC).where(_PC.product_master_id.in_(stale)))
+        db.execute(delete(_AA).where(_AA.product_master_id.in_(stale)))
+        db.execute(
+            PurchaseFact.__table__.update()
+            .where(PurchaseFact.product_master_id.in_(stale))
+            .values(product_master_id=None)
+        )
+        db.execute(delete(ProductMaster).where(ProductMaster.id.in_(stale)))
+        print(f"→ master: удалено устаревших позиций: {len(stale)}")
     return count
 
 
