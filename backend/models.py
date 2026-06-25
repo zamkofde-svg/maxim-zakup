@@ -132,6 +132,10 @@ class PriceQuote(Base):
     # фасовка, особенности партии).
     supplier_comment: Mapped[Optional[str]] = mapped_column(String, default=None)
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Источник цены: 'matrix' — из Google-таблицы (импорт), 'portal' — введена/подтверждена
+    # через портал. Портальные ПРИОРИТЕТНЫ: импорт матрицы их НЕ перезатирает и НЕ удаляет,
+    # иначе пересчёт возвращает цену к старому значению из листа (баг «меняю, а откатывается»).
+    source: Mapped[str] = mapped_column(String(16), default="matrix")
 
     supplier: Mapped[Supplier] = relationship()
     product: Mapped[ProductMaster] = relationship(back_populates="quotes")

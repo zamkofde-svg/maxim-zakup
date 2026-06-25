@@ -49,6 +49,7 @@ def _apply_lightweight_migrations() -> None:
     expected = {
         "price_quotes": [
             ("supplier_comment", "TEXT"),
+            ("source", "VARCHAR(16) DEFAULT 'matrix'"),
         ],
         "users": [
             ("supplier_id", "INTEGER"),

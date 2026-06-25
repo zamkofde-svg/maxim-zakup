@@ -357,6 +357,12 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
             select(PriceQuote).filter_by(supplier_id=sup.id, product_master_id=pm.id)
         ).scalar_one_or_none()
 
+        # Портальная цена ПРИОРИТЕТНА: введена/подтверждена через портал, источник истины —
+        # не приложение Google-таблицы. Импорт матрицы её не трогает (иначе пересчёт
+        # откатывает цену к старому значению из листа — баг «меняю 363→345, а возвращается»).
+        if existing is not None and getattr(existing, "source", "matrix") == "portal":
+            continue
+
         if existing:
             # unit_type может меняться независимо от цены (поставщик вписал «КГ» в колонку
             # «Ед. изм», а раньше там было пусто — теперь мы знаем точнее). Синхронизируем.
@@ -426,6 +432,9 @@ def import_supplier_matrix(db: Session, path: Path, supplier_name: str) -> dict:
     removed = 0
     for old in stale:
         if old.product_master_id not in seen_pm_ids:
+            # Портальные цены не удаляем — их нет в листе по определению (их там и не было).
+            if getattr(old, "source", "matrix") == "portal":
+                continue
             db.delete(old)
             removed += 1
 

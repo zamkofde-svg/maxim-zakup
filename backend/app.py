@@ -469,10 +469,11 @@ def _apply_live_price(db: Session, sup_id: int, pm_id: int, price: Optional[floa
         existing.unit_type = unit_type
         existing.supplier_comment = comment
         existing.captured_at = now
+        existing.source = "portal"   # портал — источник истины, импорт матрицы не перетрёт
     else:
         db.add(PriceQuote(supplier_id=sup_id, product_master_id=pm_id,
                           unit_price=price, unit_type=unit_type,
-                          supplier_comment=comment, captured_at=now))
+                          supplier_comment=comment, captured_at=now, source="portal"))
     return "saved"
 
 
