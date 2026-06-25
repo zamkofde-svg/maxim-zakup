@@ -11,6 +11,9 @@ services:
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - GOOGLE_SA_JSON_CONTENT=${GOOGLE_SA_JSON_CONTENT}
+      # Секрет подписи сессий. БЕЗ него app генерит случайный при каждом старте →
+      # все логины слетают на каждом рестарте/деплое. Берётся из .env.
+      - SESSION_SECRET=${SESSION_SECRET}
       - DB_PATH=/data/data.db
       - DRIVE_SYNC_DIR=/data/drive-sync
     volumes:
