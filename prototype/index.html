@@ -1449,10 +1449,7 @@
       document.getElementById('page-ceo').dataset.loaded = '1';
       hydrateCEOSummary();
     }
-    if (page === 'summary' && !document.getElementById('page-summary').dataset.loaded) {
-      document.getElementById('page-summary').dataset.loaded = '1';
-      hydrateSummary();
-    }
+    if (page === 'summary') hydrateSummary();  // всегда свежее (цены меняются после акцепта)
     if (page === 'prices' && !document.getElementById('page-prices').dataset.loaded) {
       document.getElementById('page-prices').dataset.loaded = '1';
       hydratePrices();

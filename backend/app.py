@@ -1889,6 +1889,18 @@ def generate_ceo_summary(db: Session = Depends(get_db), force: bool = Query(Fals
 
 # ============ STATIC FRONTEND ============
 
+class _NoCacheHTMLStatic(StaticFiles):
+    """Отдаёт index.html с Cache-Control: no-cache, чтобы после деплоя браузер
+    НЕ показывал старый закэшированный фронт (иначе пользователь сидит на старом
+    JS и видит «уже исправленные» баги). ETag остаётся → ревалидация даёт 304,
+    трафик не растёт. Статика (если появится) кэшируется как обычно."""
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if "text/html" in resp.headers.get("content-type", ""):
+            resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
+
+
 PROTOTYPE_DIR = Path(__file__).parent.parent / "prototype"
 if PROTOTYPE_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(PROTOTYPE_DIR), html=True), name="prototype")
+    app.mount("/", _NoCacheHTMLStatic(directory=str(PROTOTYPE_DIR), html=True), name="prototype")
