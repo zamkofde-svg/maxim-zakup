@@ -1444,17 +1444,18 @@
     lucide.createIcons();
     document.querySelector('main').scrollTo(0, 0);
 
-    // Ленивая загрузка для тяжёлых страниц
+    // Страницы с ЦЕНАМИ — обновляем при КАЖДОМ заходе, чтобы после акцепта/правок
+    // новая цена была видна сразу, без «Запустить пересчёт».
+    if (page === 'dashboard') hydrateDashboard();
+    if (page === 'recommendations') hydrateRecommendations();
+    if (page === 'summary') hydrateSummary();
+    if (page === 'prices') hydratePrices();
+    if (page === 'pending') hydratePending();
+    // CEO-сводка — генерится ИИ (дорого), грузим один раз
     if (page === 'ceo' && !document.getElementById('page-ceo').dataset.loaded) {
       document.getElementById('page-ceo').dataset.loaded = '1';
       hydrateCEOSummary();
     }
-    if (page === 'summary') hydrateSummary();  // всегда свежее (цены меняются после акцепта)
-    if (page === 'prices' && !document.getElementById('page-prices').dataset.loaded) {
-      document.getElementById('page-prices').dataset.loaded = '1';
-      hydratePrices();
-    }
-    if (page === 'pending') hydratePending();  // всегда свежее
   }
 
   function toggleMobileSidebar(force) {
