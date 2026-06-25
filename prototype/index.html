@@ -3719,19 +3719,31 @@
     if (_portalMode === 'market') { _renderPortalMarket(); return; }
     const wrap = document.getElementById('portal-positions');
     if (!wrap || !_portalData) return;
-    const cat = _portalData.categories.find(c => c.category === _portalCat);
-    if (!cat) { wrap.innerHTML = ''; return; }
-    const unitLabel = cat.unit_type === 'kg_or_l' ? '₽/кг·л' : '₽/упак';
     const q = _portalSearch;
-    const positions = q ? cat.positions.filter(p => p.product.toLowerCase().includes(q)) : cat.positions;
+    const unitOf = ut => ut === 'kg_or_l' ? '₽/кг·л' : '₽/упак';
+    // entries: [{p, unitLabel, catName}]. При поиске — по ВСЕМ категориям (поставщик
+    // не знает нашу категоризацию). Без поиска — только активная вкладка.
+    let entries = [];
+    if (q) {
+      for (const c of _portalData.categories) {
+        for (const p of c.positions) {
+          if (p.product.toLowerCase().includes(q)) entries.push({ p, unitLabel: unitOf(c.unit_type), catName: c.category });
+        }
+      }
+    } else {
+      const cat = _portalData.categories.find(c => c.category === _portalCat);
+      if (!cat) { wrap.innerHTML = ''; return; }
+      entries = cat.positions.map(p => ({ p, unitLabel: unitOf(cat.unit_type), catName: null }));
+    }
 
     const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     let html = `<div class="max-w-3xl mx-auto space-y-1.5">`;
-    if (!positions.length) {
+    if (q) html += `<div class="text-xs text-slate-500 px-1 pb-1">Найдено по всем категориям: <b>${entries.length}</b></div>`;
+    if (!entries.length) {
       html += '<div class="p-8 text-center text-slate-400 text-sm">Ничего не найдено</div>';
     }
     const isBuyer = !!(_portalData && _portalData.is_buyer);
-    for (const p of positions) {
+    for (const { p, unitLabel, catName } of entries) {
       const v = _portalValue(p);
       const hasDirty = !!_portalDirty[p.product_id];
       const pendingBadge = (p.pending && !hasDirty)
@@ -3742,7 +3754,7 @@
       html += `
         <div class="bg-white rounded-lg border ${hasDirty ? 'border-amber-300' : 'border-slate-200'} p-3">
           <div class="flex items-center justify-between gap-2 mb-2">
-            <div class="text-sm font-medium text-slate-900">${safe(p.product)}${pendingBadge}</div>
+            <div class="text-sm font-medium text-slate-900">${safe(p.product)}${pendingBadge}${catName ? `<span class="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded ml-2">${safe(catName)}</span>` : ''}</div>
             <div class="flex-shrink-0">${photoBtn}</div>
           </div>
           <div class="flex gap-2 items-center">
