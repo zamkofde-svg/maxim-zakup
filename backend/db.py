@@ -56,6 +56,7 @@ def _apply_lightweight_migrations() -> None:
         ],
         "products_master": [
             ("has_photo", "BOOLEAN DEFAULT 0"),
+            ("unit_type", "VARCHAR(16)"),
         ],
     }
     with engine.begin() as conn:

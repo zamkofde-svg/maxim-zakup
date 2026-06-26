@@ -82,6 +82,9 @@ class ProductMaster(Base):
     name: Mapped[str] = mapped_column(String(512))
     name_normalized: Mapped[str] = mapped_column(String(512), index=True)
     unit_label: Mapped[Optional[str]] = mapped_column(String(16))  # КГ/ШТ для Овощифрукты
+    # Позиционный override единицы (kg_or_l/pkg). Если None — берём из категории.
+    # Редактируется в сервисе (мастер-матрица теперь редактируется тут, не в Google).
+    unit_type: Mapped[Optional[str]] = mapped_column(String(16), default=None)
     group_abc: Mapped[Optional[str]] = mapped_column(String(1))   # A/B/C — задаём руками
     has_photo: Mapped[bool] = mapped_column(Boolean, default=False)  # есть ли фото-эталон позиции
 

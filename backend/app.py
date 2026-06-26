@@ -5,6 +5,7 @@ FastAPI приложение — backend для прототипа.
 """
 from __future__ import annotations
 import os
+import re
 import sys
 import signal
 import subprocess
@@ -33,7 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, delete
 from sqlalchemy.orm import Session, selectinload
 
 from backend.db import get_db, init_db, SessionLocal
@@ -437,7 +438,8 @@ class PortalSaveBody(BaseModel):
 
 
 def _cat_unit_map(db: Session) -> dict[int, str]:
-    return {pm.id: cat.unit_type for pm, cat in db.execute(
+    # Позиционный unit_type приоритетнее категорийного (редактируется в сервисе).
+    return {pm.id: (pm.unit_type or cat.unit_type) for pm, cat in db.execute(
         select(ProductMaster, Category).join(Category, Category.id == ProductMaster.category_id)
     ).all()}
 
@@ -1038,6 +1040,150 @@ def mapping_summary(db: Session = Depends(get_db)):
         "total_master_products": db.scalar(select(func.count(ProductMaster.id))),
         "total_unmapped": db.scalar(select(func.count(UnmappedItem.id))),
     }
+
+
+# ============ МАСТЕР-МАТРИЦА: редактор позиций (источник истины — БД, не Google) ============
+
+class MasterPositionCreate(BaseModel):
+    name: str
+    category_id: int
+    unit_type: Optional[str] = None   # None → берётся из категории
+
+
+class MasterPositionPatch(BaseModel):
+    name: Optional[str] = None
+    category_id: Optional[int] = None
+    unit_type: Optional[str] = None   # "" → сбросить override (брать из категории)
+
+
+_VALID_UNITS = {"kg_or_l", "pkg"}
+
+
+def _normname(s: str) -> str:
+    from backend.importer import normalize
+    return normalize(s)
+
+
+@app.get("/api/master/positions")
+def master_positions_list(
+    db: Session = Depends(get_db),
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 3000,
+    user: User = Depends(require_role("buyer")),
+):
+    """Список позиций мастер-матрицы для редактора."""
+    q = select(ProductMaster, Category).join(Category, Category.id == ProductMaster.category_id)
+    if category:
+        q = q.where(Category.name == category)
+    rows = db.execute(q.order_by(Category.name, ProductMaster.name)).all()
+    sval = _normname(search) if search else None
+    # сколько поставщиков уже дали цену — чтобы предупредить перед удалением
+    cnt = {}
+    for pm_id, c in db.execute(
+        select(PriceQuote.product_master_id, func.count()).group_by(PriceQuote.product_master_id)
+    ).all():
+        cnt[pm_id] = c
+    out = []
+    for pm, cat in rows:
+        if sval and sval not in pm.name_normalized:
+            continue
+        out.append({
+            "id": pm.id, "name": pm.name,
+            "category": cat.name, "category_id": cat.id,
+            "unit_type": pm.unit_type or cat.unit_type,   # эффективная
+            "unit_override": pm.unit_type,                # явный override (или None)
+            "cat_unit_type": cat.unit_type,
+            "has_photo": pm.has_photo,
+            "suppliers_count": cnt.get(pm.id, 0),
+        })
+    return {"total": len(out), "positions": out}
+
+
+@app.post("/api/master/positions")
+def master_position_create(body: MasterPositionCreate, db: Session = Depends(get_db),
+                           user: User = Depends(require_role("buyer"))):
+    name = re.sub(r"\s+", " ", (body.name or "")).strip()
+    if not name:
+        raise HTTPException(400, "Пустое наименование")
+    cat = db.get(Category, body.category_id)
+    if not cat:
+        raise HTTPException(404, "Категория не найдена")
+    if body.unit_type and body.unit_type not in _VALID_UNITS:
+        raise HTTPException(400, "unit_type должен быть kg_or_l или pkg")
+    nn = _normname(name)
+    dup = db.execute(
+        select(ProductMaster).where(ProductMaster.category_id == cat.id, ProductMaster.name_normalized == nn)
+    ).scalar_one_or_none()
+    if dup:
+        raise HTTPException(409, f"Такая позиция уже есть в категории «{cat.name}»")
+    pm = ProductMaster(category_id=cat.id, name=name, name_normalized=nn,
+                       unit_type=(body.unit_type or None))
+    db.add(pm)
+    db.commit()
+    return {"id": pm.id, "name": pm.name}
+
+
+@app.patch("/api/master/positions/{pid}")
+def master_position_update(pid: int, body: MasterPositionPatch, db: Session = Depends(get_db),
+                           user: User = Depends(require_role("buyer"))):
+    pm = db.get(ProductMaster, pid)
+    if not pm:
+        raise HTTPException(404, "Позиция не найдена")
+    if body.category_id is not None:
+        cat = db.get(Category, body.category_id)
+        if not cat:
+            raise HTTPException(404, "Категория не найдена")
+        pm.category_id = cat.id
+    if body.name is not None:
+        name = re.sub(r"\s+", " ", body.name).strip()
+        if not name:
+            raise HTTPException(400, "Пустое наименование")
+        pm.name = name
+        pm.name_normalized = _normname(name)
+    if body.unit_type is not None:
+        # "" → сбросить override; иначе валидируем
+        if body.unit_type == "":
+            pm.unit_type = None
+        elif body.unit_type in _VALID_UNITS:
+            pm.unit_type = body.unit_type
+        else:
+            raise HTTPException(400, "unit_type должен быть kg_or_l, pkg или пусто")
+    # проверка уникальности после правок
+    dup = db.execute(
+        select(ProductMaster).where(
+            ProductMaster.category_id == pm.category_id,
+            ProductMaster.name_normalized == pm.name_normalized,
+            ProductMaster.id != pm.id,
+        )
+    ).scalar_one_or_none()
+    if dup:
+        raise HTTPException(409, "Такая позиция уже есть в этой категории")
+    db.commit()
+    return {"id": pm.id, "name": pm.name, "category_id": pm.category_id,
+            "unit_type": pm.unit_type}
+
+
+@app.delete("/api/master/positions/{pid}")
+def master_position_delete(pid: int, db: Session = Depends(get_db),
+                           user: User = Depends(require_role("buyer"))):
+    pm = db.get(ProductMaster, pid)
+    if not pm:
+        raise HTTPException(404, "Позиция не найдена")
+    # сносим зависимые записи (как делал импорт при удалении устаревших)
+    db.execute(delete(PriceQuote).where(PriceQuote.product_master_id == pid))
+    db.execute(delete(PriceHistory).where(PriceHistory.product_master_id == pid))
+    db.execute(delete(PriceChange).where(PriceChange.product_master_id == pid))
+    db.execute(delete(PendingPriceChange).where(PendingPriceChange.product_master_id == pid))
+    db.execute(delete(AccountingAlias).where(AccountingAlias.product_master_id == pid))
+    db.execute(
+        PurchaseFact.__table__.update()
+        .where(PurchaseFact.product_master_id == pid)
+        .values(product_master_id=None)
+    )
+    db.delete(pm)
+    db.commit()
+    return {"ok": True, "deleted": pid}
 
 
 @app.get("/api/mapping/items")

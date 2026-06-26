@@ -684,10 +684,17 @@ def main():
     print("→ seed static")
     seed_static(db)
 
+    # Мастер-матрица теперь редактируется ПРЯМО В СЕРВИСЕ (не в Google).
+    # Импорт из Drive отключён, чтобы пересчёт не затирал/не удалял позиции,
+    # заведённые/изменённые через редактор. Бутстрап из таблицы оставляем ТОЛЬКО
+    # для пустой базы (первый запуск) — дальше источник истины это БД.
     master_path = DRIVE_DIR / MASTER_FILE
-    if master_path.exists():
+    have_products = db.execute(select(func.count(ProductMaster.id))).scalar() or 0
+    if master_path.exists() and have_products == 0:
         n = import_master_matrix(db, master_path)
-        print(f"→ master matrix: {n} строк продуктов")
+        print(f"→ master matrix (первичный бутстрап): {n} строк продуктов")
+    else:
+        print(f"→ master matrix: импорт пропущен (редактируется в сервисе, в БД {have_products} позиций)")
 
     mapping_path = DRIVE_DIR / MAPPING_FILE
     if mapping_path.exists():
