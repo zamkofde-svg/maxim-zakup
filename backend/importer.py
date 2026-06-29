@@ -712,10 +712,22 @@ def main():
     # === ЧИСТКА ФАНТОМНЫХ ПОСТАВЩИКОВ ===
     # Поставщик в БД для которого больше нет xlsx-файла → фантом (файл удалён/переименован).
     # Сносим вместе с его quotes и changes. PriceHistory оставляем как исторический архив.
-    from backend.models import PriceQuote as _PQ, PriceChange as _PC
+    # НО: поставщиков, заведённых/работающих через ПОРТАЛ (есть логин или портальные
+    # цены), не трогаем — у них матрицы в Drive нет по определению, это не фантомы.
+    from backend.models import PriceQuote as _PQ, PriceChange as _PC, User as _U
+    protected_ids = {
+        uid for (uid,) in db.execute(
+            select(_U.supplier_id).where(_U.role == "supplier", _U.supplier_id.isnot(None))
+        ).all()
+    }
+    protected_ids |= {
+        sid for (sid,) in db.execute(
+            select(_PQ.supplier_id).where(_PQ.source == "portal").distinct()
+        ).all()
+    }
     phantoms = [
         s for s in db.execute(select(Supplier)).scalars().all()
-        if s.name_normalized not in seen_supplier_norms
+        if s.name_normalized not in seen_supplier_norms and s.id not in protected_ids
     ]
     if phantoms:
         for ph in phantoms:

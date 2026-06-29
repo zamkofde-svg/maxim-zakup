@@ -2642,6 +2642,15 @@
             </div>
             <button onclick="document.getElementById('sup-acc-modal').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
           </div>
+          <div class="px-6 py-3 bg-slate-50 border-b border-slate-100">
+            <div class="text-xs font-medium text-slate-600 mb-2">Добавить нового поставщика (которого нет в списке)</div>
+            <div class="flex gap-2 flex-wrap items-center">
+              <input id="new-sup-name" type="text" placeholder="Название поставщика" class="flex-1 min-w-[200px] border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+              <input id="new-sup-pass" type="text" placeholder="пароль (необяз.)" class="w-40 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+              <button onclick="createNewSupplier()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Создать</button>
+            </div>
+            <div id="new-sup-error" class="text-xs text-rose-600 mt-1.5 hidden"></div>
+          </div>
           <div class="overflow-y-auto">
             <table class="w-full">
               <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wider sticky top-0">
@@ -2676,6 +2685,29 @@
     openSupplierAccounts();
   }
   window.toggleSupplierLogin = toggleSupplierLogin;
+
+  async function createNewSupplier() {
+    const name = document.getElementById('new-sup-name').value.trim();
+    const password = document.getElementById('new-sup-pass').value.trim();
+    const err = document.getElementById('new-sup-error');
+    err.classList.add('hidden');
+    if (!name) { err.textContent = 'Введите название поставщика'; err.classList.remove('hidden'); return; }
+    const resp = await fetch(`${API_BASE}/supplier-accounts/new`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      credentials: 'include', body: JSON.stringify({ name, password: password || null }),
+    });
+    if (resp.status === 401) { showLogin(); return; }
+    if (!resp.ok) {
+      let msg = 'Ошибка ' + resp.status;
+      try { const j = await resp.json(); if (j.detail) msg = j.detail; } catch (e) {}
+      err.textContent = msg; err.classList.remove('hidden'); return;
+    }
+    const r = await resp.json();
+    prompt(`Поставщик «${r.supplier}» создан. Логин и пароль (пароль больше не показывается — скопируйте и передайте):`,
+           `Логин: ${r.username}    Пароль: ${r.password}`);
+    openSupplierAccounts();  // перерисовать список (новый поставщик появится с логином)
+  }
+  window.createNewSupplier = createNewSupplier;
 
   // ============ Авто-сопоставления (этап 2) ============
   let _mappingSuggestData = [];   // [{id, raw_name, source, occurrence_count, candidates}]

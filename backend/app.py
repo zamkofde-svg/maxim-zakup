@@ -733,6 +733,47 @@ def create_supplier_account(body: CreateSupplierAccount, db: Session = Depends(g
     return {"username": username, "password": password, "supplier": sup.name}
 
 
+class CreateNewSupplier(BaseModel):
+    name: str
+    password: Optional[str] = None   # если не задан — сгенерим
+
+
+@app.post("/api/supplier-accounts/new")
+def create_new_supplier(body: CreateNewSupplier, db: Session = Depends(get_db),
+                        user: User = Depends(require_role("buyer"))):
+    """Создаёт НОВОГО поставщика (которого нет в матрицах) + логин для портала.
+    Возвращает username + password в открытом виде ОДИН РАЗ."""
+    name = re.sub(r"\s+", " ", (body.name or "")).strip()
+    if not name:
+        raise HTTPException(400, "Пустое название поставщика")
+    nn = _normname(name)
+    dup = db.execute(
+        select(Supplier).where(Supplier.name_normalized == nn)
+    ).scalar_one_or_none()
+    if dup:
+        raise HTTPException(409, f"Поставщик «{dup.name}» уже есть — задайте ему логин в списке ниже")
+
+    sup = Supplier(name=name, name_normalized=nn, is_internal=False)
+    db.add(sup)
+    db.flush()   # получить sup.id
+
+    import secrets as _secrets
+    password = body.password or _secrets.token_urlsafe(6)
+    base = _translit(name)[:20] or f"sup{sup.id}"
+    username = base
+    n = 1
+    while db.execute(select(User).where(User.username == username)).scalar_one_or_none():
+        n += 1
+        username = f"{base}{n}"
+    db.add(User(
+        username=username, password_hash=hash_password(password),
+        role="supplier", supplier_id=sup.id, full_name=sup.name, is_active=True,
+    ))
+    db.commit()
+    return {"supplier_id": sup.id, "supplier": sup.name,
+            "username": username, "password": password}
+
+
 @app.post("/api/supplier-accounts/{supplier_id}/toggle")
 def toggle_supplier_account(supplier_id: int, db: Session = Depends(get_db),
                             user: User = Depends(require_role("buyer"))):
