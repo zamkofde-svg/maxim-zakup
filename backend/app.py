@@ -788,6 +788,36 @@ def toggle_supplier_account(supplier_id: int, db: Session = Depends(get_db),
     return {"supplier_id": supplier_id, "is_active": acc.is_active}
 
 
+# ============ ПАРОЛЬ ДЛЯ ШЕФОВ ============
+
+class ChefPasswordBody(BaseModel):
+    password: str
+
+
+@app.get("/api/chef-account")
+def get_chef_account(db: Session = Depends(get_db), user: User = Depends(require_role("buyer"))):
+    """Логин, под которым заходят шефы (для показа закупщику)."""
+    chef = db.execute(select(User).where(User.role == "chef").order_by(User.id)).scalars().first()
+    return {"username": chef.username if chef else "chef", "exists": bool(chef)}
+
+
+@app.post("/api/chef-password")
+def set_chef_password(body: ChefPasswordBody, db: Session = Depends(get_db),
+                      user: User = Depends(require_role("buyer"))):
+    """Закупщик задаёт новый пароль для входа шефов."""
+    pw = (body.password or "").strip()
+    if len(pw) < 4:
+        raise HTTPException(400, "Пароль минимум 4 символа")
+    chefs = db.execute(select(User).where(User.role == "chef")).scalars().all()
+    if not chefs:
+        raise HTTPException(404, "Аккаунт шефа не найден")
+    for c in chefs:
+        c.password_hash = hash_password(pw)
+        c.is_active = True
+    db.commit()
+    return {"ok": True, "username": chefs[0].username}
+
+
 # ============ PRODUCTS & TOP-2 ============
 
 @app.get("/api/products")

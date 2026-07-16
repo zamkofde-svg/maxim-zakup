@@ -530,11 +530,16 @@
             <h3 class="font-semibold text-slate-900">Топ-3 рекомендации шефам</h3>
             <p class="text-xs text-slate-500 mt-0.5">Обновляются автоматически из матриц поставщиков</p>
           </div>
-          <div class="relative w-72">
-            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"></i>
-            <input id="rec-search" type="search" placeholder="Поиск по наименованию…"
-                   oninput="onRecSearchInput()"
-                   class="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-indigo-400" />
+          <div class="flex items-center gap-2">
+            <button onclick="openChefPassword()" class="buyer-only flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap" title="Задать пароль, под которым заходят шефы">
+              <i data-lucide="key-round" class="w-4 h-4"></i> Пароль для шефов
+            </button>
+            <div class="relative w-72">
+              <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"></i>
+              <input id="rec-search" type="search" placeholder="Поиск по наименованию…"
+                     oninput="onRecSearchInput()"
+                     class="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-indigo-400" />
+            </div>
           </div>
         </div>
 
@@ -2523,41 +2528,108 @@
     expand.querySelector('td').innerHTML = _renderMiniChart(c, data || []);
   }
 
+  let _miniChart = null;   // геометрия открытого графика — для ховера
+
   function _renderMiniChart(c, points) {
     if (!points.length) {
+      _miniChart = null;
       return `<div class="text-xs text-slate-500">Истории нет — это первая запись цены.</div>`;
     }
-    const W = 800, H = 160, padL = 50, padR = 16, padT = 18, padB = 28;
+    const W = 820, H = 190, padL = 54, padR = 18, padT = 24, padB = 32;
     const xs = points.map(p => new Date(p.date).getTime());
     const ys = points.map(p => p.price);
     const xMin = Math.min(...xs), xMax = Math.max(...xs);
-    const yMin = Math.min(...ys), yMax = Math.max(...ys);
-    const xRange = (xMax - xMin) || 1;
-    const yRange = (yMax - yMin) || 1;
+    let yLo = Math.min(...ys), yHi = Math.max(...ys);
+    const air = (yHi - yLo) * 0.15 || Math.max(1, yHi * 0.05);
+    yLo -= air; yHi += air;
+    const xRange = (xMax - xMin) || 1, yRange = (yHi - yLo) || 1;
     const sx = x => padL + (W - padL - padR) * (x - xMin) / xRange;
-    const sy = y => padT + (H - padT - padB) * (1 - (y - yMin) / yRange);
-    const path = points.map((p, i) => `${i ? 'L' : 'M'}${sx(xs[i]).toFixed(1)},${sy(p.price).toFixed(1)}`).join(' ');
-    const dots = points.map((p, i) => `<circle cx="${sx(xs[i]).toFixed(1)}" cy="${sy(p.price).toFixed(1)}" r="2.5" fill="#6366f1"/>`).join('');
-    const fmtD = ts => { const d = new Date(ts); return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth()+1).padStart(2,'0')}`; };
-    const xLabels = [xMin, (xMin+xMax)/2, xMax]
+    const sy = y => padT + (H - padT - padB) * (1 - (y - yLo) / yRange);
+    const linePath = points.map((p, i) => `${i ? 'L' : 'M'}${sx(xs[i]).toFixed(1)},${sy(p.price).toFixed(1)}`).join(' ');
+    const areaPath = `M${sx(xMin).toFixed(1)},${(H - padB).toFixed(1)} ` +
+      points.map((p, i) => `L${sx(xs[i]).toFixed(1)},${sy(p.price).toFixed(1)}`).join(' ') +
+      ` L${sx(xMax).toFixed(1)},${(H - padB).toFixed(1)} Z`;
+    // точки, где цена ИЗМЕНИЛАСЬ (или самая первая)
+    const changes = points.map((p, i) => (i === 0 || p.price !== points[i - 1].price) ? i : -1).filter(i => i >= 0);
+    const fmtD = ts => { const d = new Date(ts); return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}`; };
+    const dots = changes.map(i => {
+      const col = i === 0 ? '#6366f1' : (points[i].price > points[i - 1].price ? '#ef4444' : '#10b981');
+      return `<circle cx="${sx(xs[i]).toFixed(1)}" cy="${sy(points[i].price).toFixed(1)}" r="3.5" fill="${col}" stroke="#fff" stroke-width="1.5"/>`;
+    }).join('');
+    const labels = changes.map(i => {
+      const y = sy(points[i].price), x = sx(xs[i]);
+      const above = y > padT + 16;
+      return `<text x="${x.toFixed(1)}" y="${(above ? y - 7 : y + 14).toFixed(1)}" font-size="10" fill="#475569" text-anchor="middle" font-weight="600">${points[i].price.toFixed(0)}</text>`;
+    }).join('');
+    const yLabels = [yHi, (yHi + yLo) / 2, yLo]
+      .map(v => `<text x="${padL - 6}" y="${(sy(v) + 3).toFixed(1)}" font-size="10" fill="#94a3b8" text-anchor="end">${v.toFixed(0)}</text>`).join('');
+    const xLabels = [xMin, (xMin + xMax) / 2, xMax]
       .map(t => `<text x="${sx(t).toFixed(1)}" y="${H - 8}" font-size="10" fill="#94a3b8" text-anchor="middle">${fmtD(t)}</text>`).join('');
-    const yLabels = [yMax, (yMax+yMin)/2, yMin]
-      .map(v => `<text x="${padL - 6}" y="${sy(v) + 3}" font-size="10" fill="#94a3b8" text-anchor="end">${v.toFixed(0)}</text>`).join('');
+
+    _miniChart = { pts: points.map((p, i) => ({ t: xs[i], price: p.price })), W, H, padL, padR, padT, padB, xMin, xRange, yLo, yRange };
+
     return `
       <div class="flex items-center justify-between mb-2">
         <div class="text-xs text-slate-600">История цены: <b>${(c.product || '').replace(/[<>]/g,'')}</b> · <span class="text-slate-500">${(c.supplier || '').replace(/[<>]/g,'')}</span></div>
-        <div class="text-xs text-slate-400">${points.length} точек за 90 дней</div>
+        <div class="text-xs text-slate-400">${changes.length} изм. · ${points.length} точек · наведите для деталей</div>
       </div>
-      <svg viewBox="0 0 ${W} ${H}" class="w-full" style="max-height:200px">
-        <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#e2e8f0"/>
-        <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#e2e8f0"/>
-        ${yLabels}
-        ${xLabels}
-        <path d="${path}" stroke="#6366f1" stroke-width="2" fill="none"/>
-        ${dots}
-      </svg>
+      <div style="position:relative">
+        <svg id="mc-svg" viewBox="0 0 ${W} ${H}" class="w-full" style="max-height:230px" onmousemove="_miniHover(event)" onmouseleave="_miniLeave()">
+          <defs><linearGradient id="mcGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#6366f1" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+          </linearGradient></defs>
+          <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#e2e8f0"/>
+          <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#e2e8f0"/>
+          ${yLabels}${xLabels}
+          <path d="${areaPath}" fill="url(#mcGrad)"/>
+          <path d="${linePath}" stroke="#6366f1" stroke-width="2" fill="none"/>
+          ${dots}${labels}
+          <line id="mc-cross" x1="0" y1="${padT}" x2="0" y2="${H - padB}" stroke="#94a3b8" stroke-dasharray="3 3" style="display:none"/>
+          <circle id="mc-hl" r="5" fill="#6366f1" stroke="#fff" stroke-width="2" style="display:none"/>
+        </svg>
+      </div>
     `;
   }
+
+  function _miniHover(evt) {
+    const st = _miniChart; if (!st) return;
+    const svg = document.getElementById('mc-svg'); if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const vbX = (evt.clientX - rect.left) / rect.width * st.W;
+    const sxOf = t => st.padL + (st.W - st.padL - st.padR) * (t - st.xMin) / st.xRange;
+    const syOf = y => st.padT + (st.H - st.padT - st.padB) * (1 - (y - st.yLo) / st.yRange);
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < st.pts.length; i++) { const d = Math.abs(sxOf(st.pts[i].t) - vbX); if (d < bd) { bd = d; best = i; } }
+    const p = st.pts[best], cx = sxOf(p.t), cy = syOf(p.price);
+    const cross = document.getElementById('mc-cross'), hl = document.getElementById('mc-hl');
+    if (cross) { cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.style.display = ''; }
+    if (hl) { hl.setAttribute('cx', cx); hl.setAttribute('cy', cy); hl.style.display = ''; }
+    let tip = document.getElementById('mc-tip');
+    if (!tip) {
+      tip = document.createElement('div'); tip.id = 'mc-tip';
+      tip.style.cssText = 'position:fixed;z-index:80;pointer-events:none;background:#0f172a;color:#fff;font-size:11px;line-height:1.4;padding:6px 9px;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.25);white-space:nowrap';
+      document.body.appendChild(tip);
+    }
+    const prev = best > 0 ? st.pts[best - 1].price : null;
+    let delta = '';
+    if (prev != null && prev !== p.price) {
+      const dp = (p.price - prev) / prev * 100, up = dp > 0;
+      delta = ` <span style="color:${up ? '#f87171' : '#34d399'}">${up ? '▲ +' : '▼ '}${dp.toFixed(1)}%</span>`;
+    }
+    const d = new Date(p.t);
+    const ds = `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+    tip.innerHTML = `<b>${p.price.toFixed(2)} ₽</b>${delta}<br><span style="color:#94a3b8">${ds}</span>`;
+    tip.style.display = '';
+    let left = evt.clientX + 14; if (left + 150 > window.innerWidth) left = evt.clientX - 156;
+    tip.style.left = left + 'px'; tip.style.top = (evt.clientY - 12) + 'px';
+  }
+  window._miniHover = _miniHover;
+
+  function _miniLeave() {
+    ['mc-cross', 'mc-hl', 'mc-tip'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
+  }
+  window._miniLeave = _miniLeave;
 
   function exportPriceChangesCsv() {
     if (!_pricesChanges.length) { alert('Нет данных для экспорта'); return; }
@@ -2708,6 +2780,60 @@
     openSupplierAccounts();  // перерисовать список (новый поставщик появится с логином)
   }
   window.createNewSupplier = createNewSupplier;
+
+  // ============ Пароль для шефов ============
+  async function openChefPassword() {
+    const acc = await tryFetch(`${API_BASE}/chef-account`);
+    const uname = (acc && acc.username) || 'chef';
+    document.getElementById('chef-pw-modal')?.remove();
+    const html = `
+      <div id="chef-pw-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-6" onclick="if(event.target===this)this.remove()">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div class="px-6 py-4 border-b border-slate-100 font-semibold text-slate-900">Пароль для входа шефов</div>
+          <div class="p-6 space-y-4">
+            <div class="text-xs text-slate-500">Шефы заходят под одним общим логином. Здесь можно задать новый пароль — он сразу вступит в силу, старый перестанет работать.</div>
+            <div>
+              <label class="text-xs text-slate-500">Логин шефов</label>
+              <input type="text" value="${uname}" readonly class="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm mt-1 text-slate-600">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500">Новый пароль</label>
+              <input id="chef-pw-input" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-indigo-400" placeholder="минимум 4 символа">
+            </div>
+            <div id="chef-pw-error" class="text-xs text-rose-600 hidden"></div>
+          </div>
+          <div class="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+            <button onclick="document.getElementById('chef-pw-modal').remove()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Отмена</button>
+            <button onclick="saveChefPassword()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium">Сохранить пароль</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    if (window.lucide) lucide.createIcons();
+    document.getElementById('chef-pw-input').focus();
+  }
+  window.openChefPassword = openChefPassword;
+
+  async function saveChefPassword() {
+    const pw = document.getElementById('chef-pw-input').value.trim();
+    const err = document.getElementById('chef-pw-error');
+    err.classList.add('hidden');
+    if (pw.length < 4) { err.textContent = 'Пароль минимум 4 символа'; err.classList.remove('hidden'); return; }
+    const resp = await fetch(`${API_BASE}/chef-password`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      credentials: 'include', body: JSON.stringify({ password: pw }),
+    });
+    if (resp.status === 401) { showLogin(); return; }
+    if (!resp.ok) {
+      let msg = 'Ошибка ' + resp.status;
+      try { const j = await resp.json(); if (j.detail) msg = j.detail; } catch (e) {}
+      err.textContent = msg; err.classList.remove('hidden'); return;
+    }
+    const r = await resp.json();
+    document.getElementById('chef-pw-modal').remove();
+    _toast(`✓ Пароль шефов обновлён (логин: ${r.username})`);
+  }
+  window.saveChefPassword = saveChefPassword;
 
   // ============ Авто-сопоставления (этап 2) ============
   let _mappingSuggestData = [];   // [{id, raw_name, source, occurrence_count, candidates}]
