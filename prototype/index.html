@@ -1074,6 +1074,10 @@
               <i data-lucide="key-round" class="w-4 h-4"></i>
               Логины для портала
             </button>
+            <button onclick="openPricelistUpload()" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium buyer-only">
+              <i data-lucide="file-up" class="w-4 h-4"></i>
+              Загрузить прайс
+            </button>
             <button onclick="runMasterSync()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
               <i data-lucide="git-fork" class="w-4 h-4"></i>
               Обновить по мастер-матрице
@@ -2834,6 +2838,142 @@
     _toast(`✓ Пароль шефов обновлён (логин: ${r.username})`);
   }
   window.saveChefPassword = saveChefPassword;
+
+  // ============ Загрузка прайс-листа поставщика ============
+  let _plMasterMap = {};    // name(lower) → pm_id
+  let _plMasterNames = [];  // оригинальные названия для datalist
+  let _plPreview = null;
+
+  async function openPricelistUpload() {
+    const accs = await tryFetch(`${API_BASE}/supplier-accounts`);
+    const sups = (accs || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+    document.getElementById('pl-modal')?.remove();
+    const opts = sups.map(s => `<option value="${s.supplier_id}">${(s.name || '').replace(/"/g,'&quot;')}</option>`).join('');
+    const html = `<div id="pl-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-6" onclick="if(event.target===this)this.remove()">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div class="px-6 py-4 border-b border-slate-100 font-semibold text-slate-900">Загрузить прайс поставщика</div>
+        <div class="p-6 space-y-4">
+          <div class="text-xs text-slate-500">Выберите поставщика и файл прайса (.xlsx или .docx). Система распознает цены и покажет превью — вы подтвердите перед применением.</div>
+          <div><label class="text-xs text-slate-500">Поставщик</label>
+            <select id="pl-sup" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mt-1 bg-white">${opts}</select></div>
+          <div><label class="text-xs text-slate-500">Файл прайса</label>
+            <input id="pl-file" type="file" accept=".xlsx,.xlsm,.docx" class="w-full text-sm mt-1"></div>
+          <div id="pl-error" class="text-xs text-rose-600 hidden"></div>
+        </div>
+        <div class="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+          <button onclick="document.getElementById('pl-modal').remove()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Отмена</button>
+          <button id="pl-go" onclick="uploadPricelist()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium">Распознать</button>
+        </div>
+      </div></div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    if (window.lucide) lucide.createIcons();
+  }
+  window.openPricelistUpload = openPricelistUpload;
+
+  async function uploadPricelist() {
+    const supId = +document.getElementById('pl-sup').value;
+    const fileEl = document.getElementById('pl-file');
+    const err = document.getElementById('pl-error');
+    err.classList.add('hidden');
+    const f = fileEl.files && fileEl.files[0];
+    if (!f) { err.textContent = 'Выберите файл'; err.classList.remove('hidden'); return; }
+    const btn = document.getElementById('pl-go');
+    btn.disabled = true; btn.textContent = 'Распознаю…';
+    const fd = new FormData(); fd.append('file', f);
+    let resp;
+    try { resp = await fetch(`${API_BASE}/pricelist/preview?supplier_id=${supId}`, { method: 'POST', credentials: 'include', body: fd }); }
+    catch (e) { err.textContent = 'Сбой сети'; err.classList.remove('hidden'); btn.disabled = false; btn.textContent = 'Распознать'; return; }
+    if (resp.status === 401) { showLogin(); return; }
+    if (!resp.ok) { let m = 'Ошибка ' + resp.status; try { const j = await resp.json(); if (j.detail) m = j.detail; } catch (e) {} err.textContent = m; err.classList.remove('hidden'); btn.disabled = false; btn.textContent = 'Распознать'; return; }
+    const data = await resp.json();
+    if (!_plMasterNames.length) {
+      const mp = await tryFetch(`${API_BASE}/master/positions?limit=5000`);
+      if (mp) for (const p of mp.positions) { _plMasterMap[p.name.toLowerCase()] = p.id; _plMasterNames.push(p.name); }
+    }
+    document.getElementById('pl-modal').remove();
+    _renderPricelistPreview(data);
+  }
+  window.uploadPricelist = uploadPricelist;
+
+  function _renderPricelistPreview(data) {
+    _plPreview = data;
+    document.getElementById('pl-prev-modal')?.remove();
+    const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    let rows = '';
+    data.items.forEach((it, i) => {
+      const conf = it.confidence, inc = conf === 'high';
+      const matchName = it.match ? it.match.name : '';
+      const badge = conf === 'high' ? '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">точно</span>'
+        : conf === 'low' ? '<span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">проверьте</span>'
+        : '<span class="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">не найдено</span>';
+      rows += `<tr class="border-b border-slate-100 ${conf === 'none' ? 'bg-rose-50/30' : conf === 'low' ? 'bg-amber-50/30' : ''}">
+        <td class="px-2 py-1.5 text-center"><input type="checkbox" class="pl-inc" data-i="${i}" ${inc ? 'checked' : ''}></td>
+        <td class="px-3 py-1.5"><div class="text-slate-800">${safe(it.raw_name)}</div><div class="text-[10px] text-slate-400">${it.price} ₽${it.is_update ? ' · обновление' : ''}</div></td>
+        <td class="px-3 py-1.5">${badge}</td>
+        <td class="px-3 py-1.5">
+          <input type="text" class="pl-map w-full border border-slate-200 rounded px-2 py-1 text-xs" list="pl-datalist" data-i="${i}" value="${safe(matchName)}" placeholder="выбрать позицию…" oninput="_plResolve(${i})">
+          <span class="pl-res text-[10px]" data-i="${i}"></span>
+        </td>
+      </tr>`;
+    });
+    const dl = `<datalist id="pl-datalist">${_plMasterNames.map(n => `<option value="${n.replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>`;
+    const html = `<div id="pl-prev-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-6">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[88vh] flex flex-col">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <div class="font-semibold text-slate-900 text-lg">Прайс: ${safe(data.supplier)}</div>
+            <div class="text-xs text-slate-500 mt-0.5">Распознано ${data.total} · <span class="text-emerald-600">точно ${data.matched_high}</span> · <span class="text-amber-600">проверьте ${data.matched_low}</span> · <span class="text-rose-600">не найдено ${data.unmatched}</span></div>
+          </div>
+          <button onclick="document.getElementById('pl-prev-modal').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <div class="px-6 py-2 text-xs text-slate-500 border-b border-slate-100">Галочка = применить. Для «проверьте»/«не найдено» выберите правильную позицию из списка (или снимите галочку, чтобы пропустить).</div>
+        <div class="overflow-y-auto flex-1">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-[10px] text-slate-500 uppercase sticky top-0"><tr>
+              <th class="px-2 py-2">✓</th><th class="px-3 py-2 text-left">Из прайса</th><th class="px-3 py-2 text-left">Статус</th><th class="px-3 py-2 text-left">Мастер-позиция</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          ${dl}
+        </div>
+        <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
+          <div class="text-xs text-slate-400">Ненайденные можно завести в «Мастер-матрице» и загрузить прайс повторно.</div>
+          <button onclick="applyPricelist()" class="px-5 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium">Применить отмеченные</button>
+        </div>
+      </div></div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    if (window.lucide) lucide.createIcons();
+    data.items.forEach((it, i) => _plResolve(i));
+  }
+
+  function _plResolve(i) {
+    const inp = document.querySelector(`.pl-map[data-i="${i}"]`);
+    const res = document.querySelector(`.pl-res[data-i="${i}"]`);
+    const chk = document.querySelector(`.pl-inc[data-i="${i}"]`);
+    if (!inp) return;
+    const id = _plMasterMap[(inp.value || '').trim().toLowerCase()];
+    _plPreview.items[i]._pmId = id || null;
+    if (id) { res.textContent = '✓ сопоставлено'; res.className = 'pl-res text-[10px] text-emerald-600'; }
+    else if (inp.value.trim()) { res.textContent = 'нет такой позиции'; res.className = 'pl-res text-[10px] text-rose-500'; if (chk) chk.checked = false; }
+    else { res.textContent = ''; }
+  }
+  window._plResolve = _plResolve;
+
+  async function applyPricelist() {
+    const items = [];
+    _plPreview.items.forEach((it, i) => {
+      const chk = document.querySelector(`.pl-inc[data-i="${i}"]`);
+      if (chk && chk.checked && it._pmId) items.push({ pm_id: it._pmId, price: it.price, unit: it.unit || null });
+    });
+    if (!items.length) { _toast('Нечего применять — отметьте хотя бы одну позицию', true); return; }
+    const resp = await fetch(`${API_BASE}/pricelist/apply`, { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include', body: JSON.stringify({ supplier_id: _plPreview.supplier_id, items }) });
+    if (resp.status === 401) { showLogin(); return; }
+    if (!resp.ok) { _toast('Ошибка применения: ' + resp.status, true); return; }
+    const r = await resp.json();
+    document.getElementById('pl-prev-modal').remove();
+    _toast(`✓ Загружено цен: ${r.saved} (${r.supplier})`);
+  }
+  window.applyPricelist = applyPricelist;
 
   // ============ Авто-сопоставления (этап 2) ============
   let _mappingSuggestData = [];   // [{id, raw_name, source, occurrence_count, candidates}]

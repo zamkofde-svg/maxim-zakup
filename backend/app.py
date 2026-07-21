@@ -38,6 +38,7 @@ from sqlalchemy import select, func, desc, delete
 from sqlalchemy.orm import Session, selectinload
 
 from backend.db import get_db, init_db, SessionLocal
+from backend.pricelist import parse_pricelist, build_master_index, match_name
 from backend.models import (
     Category, AccountingSystem, Restaurant,
     Supplier, SupplierAlias,
@@ -1255,6 +1256,109 @@ def master_position_delete(pid: int, db: Session = Depends(get_db),
     db.delete(pm)
     db.commit()
     return {"ok": True, "deleted": pid}
+
+
+# ============ ЗАГРУЗКА ПРАЙС-ЛИСТА ПОСТАВЩИКА ============
+
+@app.post("/api/pricelist/preview")
+async def pricelist_preview(supplier_id: int, file: UploadFile = File(...),
+                            db: Session = Depends(get_db),
+                            user: User = Depends(require_role("buyer"))):
+    """Разбирает загруженный прайс (xlsx/docx) и сопоставляет позиции с мастером.
+    НИЧЕГО НЕ ПИШЕТ — возвращает превью для подтверждения закупщиком."""
+    sup = db.get(Supplier, supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+    import os as _os, tempfile
+    suffix = _os.path.splitext(file.filename or "")[1].lower()
+    if suffix not in (".xlsx", ".xlsm", ".docx"):
+        raise HTTPException(400, "Поддерживаются только .xlsx и .docx")
+    data = await file.read()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tf:
+        tf.write(data)
+        path = tf.name
+    try:
+        items = parse_pricelist(path)
+    except Exception as e:
+        raise HTTPException(400, f"Не удалось разобрать файл: {e}")
+    finally:
+        try:
+            _os.unlink(path)
+        except OSError:
+            pass
+
+    master = [
+        {"id": pm.id, "name": pm.name, "category": cat.name,
+         "category_id": cat.id, "unit_type": pm.unit_type or cat.unit_type}
+        for pm, cat in db.execute(
+            select(ProductMaster, Category).join(Category, Category.id == ProductMaster.category_id)
+        ).all()
+    ]
+    idx = build_master_index(master)
+    # какие мастер-позиции уже с ценой у этого поставщика (чтобы показать «обновление»)
+    have = {r[0] for r in db.execute(
+        select(PriceQuote.product_master_id).where(PriceQuote.supplier_id == sup.id)
+    ).all()}
+
+    out = []
+    for it in items:
+        cands = match_name(it["name"], idx, topn=5)
+        cand_list = [{"pm_id": m["id"], "name": m["name"], "category": m["category"], "score": round(s, 2)} for m, s in cands]
+        top = cand_list[0] if cand_list else None
+        conf = "none"
+        if top:
+            conf = "high" if top["score"] >= 0.6 else ("low" if top["score"] >= 0.34 else "none")
+        out.append({
+            "raw_name": it["name"], "price": it["price"], "unit": it["unit"],
+            "confidence": conf,
+            "match": top if conf != "none" else None,
+            "is_update": bool(top and top["pm_id"] in have) if conf != "none" else False,
+            "candidates": cand_list,
+        })
+    return {
+        "supplier": sup.name, "supplier_id": sup.id,
+        "total": len(out),
+        "matched_high": sum(1 for o in out if o["confidence"] == "high"),
+        "matched_low": sum(1 for o in out if o["confidence"] == "low"),
+        "unmatched": sum(1 for o in out if o["confidence"] == "none"),
+        "items": out,
+    }
+
+
+class PricelistApplyItem(BaseModel):
+    pm_id: int
+    price: float
+    unit: Optional[str] = None
+    comment: Optional[str] = None
+
+
+class PricelistApplyBody(BaseModel):
+    supplier_id: int
+    items: list[PricelistApplyItem]
+
+
+@app.post("/api/pricelist/apply")
+def pricelist_apply(body: PricelistApplyBody, db: Session = Depends(get_db),
+                    user: User = Depends(require_role("buyer"))):
+    """Применяет подтверждённые закупщиком цены из прайса → живые цены (source=portal,
+    приоритетны над импортом матрицы). Пишем только строки с выбранной мастер-позицией."""
+    sup = db.get(Supplier, body.supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+    cat_unit = _cat_unit_map(db)
+    now = datetime.utcnow()
+    saved = 0
+    for it in body.items:
+        pm = db.get(ProductMaster, it.pm_id)
+        if not pm or it.price is None or it.price <= 0:
+            continue
+        unit = it.unit or cat_unit.get(it.pm_id, "pkg")
+        comment = (it.comment or "").strip() or None
+        r = _apply_live_price(db, sup.id, it.pm_id, it.price, comment, unit, now)
+        if r == "saved":
+            saved += 1
+    db.commit()
+    return {"saved": saved, "supplier": sup.name}
 
 
 @app.get("/api/mapping/items")
