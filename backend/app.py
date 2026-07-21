@@ -38,12 +38,12 @@ from sqlalchemy import select, func, desc, delete
 from sqlalchemy.orm import Session, selectinload
 
 from backend.db import get_db, init_db, SessionLocal
-from backend.pricelist import parse_pricelist, build_master_index, match_name
+from backend.pricelist import parse_pricelist, build_master_index, match_name, alias_key
 from backend.models import (
     Category, AccountingSystem, Restaurant,
     Supplier, SupplierAlias,
     ProductMaster, AccountingAlias,
-    PriceQuote, PriceHistory, PriceChange, PendingPriceChange,
+    PriceQuote, PriceHistory, PriceChange, PendingPriceChange, PricelistAlias,
     PurchaseFact, Deviation,
     ImportRun, UnmappedItem, User,
 )
@@ -1295,13 +1295,29 @@ async def pricelist_preview(supplier_id: int, file: UploadFile = File(...),
         ).all()
     ]
     idx = build_master_index(master)
+    mby = {m["id"]: m for m in master}
     # какие мастер-позиции уже с ценой у этого поставщика (чтобы показать «обновление»)
     have = {r[0] for r in db.execute(
         select(PriceQuote.product_master_id).where(PriceQuote.supplier_id == sup.id)
     ).all()}
+    # запомненные сопоставления этого поставщика: raw_key → pm_id
+    aliases = {a.raw_key: a.product_master_id for a in db.execute(
+        select(PricelistAlias).where(PricelistAlias.supplier_id == sup.id)
+    ).scalars()}
 
     out = []
     for it in items:
+        remembered = aliases.get(alias_key(it["name"]))
+        if remembered and remembered in mby:
+            # запомнено закупщиком ранее → сразу уверенно
+            m = mby[remembered]
+            top = {"pm_id": m["id"], "name": m["name"], "category": m["category"], "score": 1.0}
+            out.append({
+                "raw_name": it["name"], "price": it["price"], "unit": it["unit"],
+                "confidence": "high", "remembered": True, "match": top,
+                "is_update": top["pm_id"] in have, "candidates": [top],
+            })
+            continue
         cands = match_name(it["name"], idx, topn=5)
         cand_list = [{"pm_id": m["id"], "name": m["name"], "category": m["category"], "score": round(s, 2)} for m, s in cands]
         top = cand_list[0] if cand_list else None
@@ -1310,7 +1326,7 @@ async def pricelist_preview(supplier_id: int, file: UploadFile = File(...),
             conf = "high" if top["score"] >= 0.6 else ("low" if top["score"] >= 0.34 else "none")
         out.append({
             "raw_name": it["name"], "price": it["price"], "unit": it["unit"],
-            "confidence": conf,
+            "confidence": conf, "remembered": False,
             "match": top if conf != "none" else None,
             "is_update": bool(top and top["pm_id"] in have) if conf != "none" else False,
             "candidates": cand_list,
@@ -1330,6 +1346,7 @@ class PricelistApplyItem(BaseModel):
     price: float
     unit: Optional[str] = None
     comment: Optional[str] = None
+    raw_name: Optional[str] = None   # для запоминания сопоставления
 
 
 class PricelistApplyBody(BaseModel):
@@ -1341,13 +1358,16 @@ class PricelistApplyBody(BaseModel):
 def pricelist_apply(body: PricelistApplyBody, db: Session = Depends(get_db),
                     user: User = Depends(require_role("buyer"))):
     """Применяет подтверждённые закупщиком цены из прайса → живые цены (source=portal,
-    приоритетны над импортом матрицы). Пишем только строки с выбранной мастер-позицией."""
+    приоритетны над импортом матрицы). Пишем только строки с выбранной мастер-позицией.
+    Заодно ЗАПОМИНАЕМ сопоставление (raw_name → мастер-позиция), чтобы в следующий раз
+    матчилось автоматически."""
     sup = db.get(Supplier, body.supplier_id)
     if not sup:
         raise HTTPException(404, "Поставщик не найден")
     cat_unit = _cat_unit_map(db)
     now = datetime.utcnow()
     saved = 0
+    learned = 0
     for it in body.items:
         pm = db.get(ProductMaster, it.pm_id)
         if not pm or it.price is None or it.price <= 0:
@@ -1357,8 +1377,23 @@ def pricelist_apply(body: PricelistApplyBody, db: Session = Depends(get_db),
         r = _apply_live_price(db, sup.id, it.pm_id, it.price, comment, unit, now)
         if r == "saved":
             saved += 1
+        # запоминаем сопоставление
+        if it.raw_name:
+            key = alias_key(it.raw_name)
+            if key:
+                existing = db.execute(
+                    select(PricelistAlias).where(
+                        PricelistAlias.supplier_id == sup.id, PricelistAlias.raw_key == key)
+                ).scalar_one_or_none()
+                if existing:
+                    if existing.product_master_id != it.pm_id:
+                        existing.product_master_id = it.pm_id
+                        learned += 1
+                else:
+                    db.add(PricelistAlias(supplier_id=sup.id, raw_key=key, product_master_id=it.pm_id))
+                    learned += 1
     db.commit()
-    return {"saved": saved, "supplier": sup.name}
+    return {"saved": saved, "learned": learned, "supplier": sup.name}
 
 
 @app.get("/api/mapping/items")

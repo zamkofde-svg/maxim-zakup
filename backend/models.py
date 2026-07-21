@@ -120,6 +120,19 @@ class AccountingAlias(Base):
 
 # ============ ЦЕНЫ ============
 
+class PricelistAlias(Base):
+    """Запомненное сопоставление: название из прайса поставщика → мастер-позиция.
+    Копится, когда закупщик подтверждает/правит сопоставление при загрузке прайса.
+    В следующий раз то же название сматчится автоматически."""
+    __tablename__ = "pricelist_aliases"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), index=True)
+    raw_key: Mapped[str] = mapped_column(String(512), index=True)   # нормализованное имя из прайса
+    product_master_id: Mapped[int] = mapped_column(ForeignKey("products_master.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("supplier_id", "raw_key"),)
+
+
 class PriceQuote(Base):
     """Текущая (последняя) цена поставщика на позицию."""
     __tablename__ = "price_quotes"

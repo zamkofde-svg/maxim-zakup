@@ -174,6 +174,13 @@ def match_tokens(s: str) -> set:
     return {_stem(t) for t in s.split() if t and t not in _STOP and t not in _COUNTRIES and len(t) > 1}
 
 
+def alias_key(raw: str) -> str:
+    """Ключ для запоминания сопоставления: то же название из прайса того же
+    поставщика должно давать тот же ключ (lowercase, схлопнутые пробелы, ё→е)."""
+    s = str(raw or "").lower().replace("ё", "е")
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def build_master_index(master: list) -> list:
     """master: [{id, name, category, category_id, unit_type}] → [(item, tokenset)]."""
     return [(m, match_tokens(m["name"])) for m in master]

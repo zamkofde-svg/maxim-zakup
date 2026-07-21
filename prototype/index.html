@@ -2903,7 +2903,8 @@
     data.items.forEach((it, i) => {
       const conf = it.confidence, inc = conf === 'high';
       const matchName = it.match ? it.match.name : '';
-      const badge = conf === 'high' ? '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">точно</span>'
+      const badge = it.remembered ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">запомнено</span>'
+        : conf === 'high' ? '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">точно</span>'
         : conf === 'low' ? '<span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">проверьте</span>'
         : '<span class="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">не найдено</span>';
       rows += `<tr class="border-b border-slate-100 ${conf === 'none' ? 'bg-rose-50/30' : conf === 'low' ? 'bg-amber-50/30' : ''}">
@@ -2963,7 +2964,7 @@
     const items = [];
     _plPreview.items.forEach((it, i) => {
       const chk = document.querySelector(`.pl-inc[data-i="${i}"]`);
-      if (chk && chk.checked && it._pmId) items.push({ pm_id: it._pmId, price: it.price, unit: it.unit || null });
+      if (chk && chk.checked && it._pmId) items.push({ pm_id: it._pmId, price: it.price, unit: it.unit || null, raw_name: it.raw_name });
     });
     if (!items.length) { _toast('Нечего применять — отметьте хотя бы одну позицию', true); return; }
     const resp = await fetch(`${API_BASE}/pricelist/apply`, { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include', body: JSON.stringify({ supplier_id: _plPreview.supplier_id, items }) });
@@ -2971,7 +2972,7 @@
     if (!resp.ok) { _toast('Ошибка применения: ' + resp.status, true); return; }
     const r = await resp.json();
     document.getElementById('pl-prev-modal').remove();
-    _toast(`✓ Загружено цен: ${r.saved} (${r.supplier})`);
+    _toast(`✓ Загружено цен: ${r.saved}${r.learned ? `, запомнено ${r.learned} сопоставлений` : ''} (${r.supplier})`);
   }
   window.applyPricelist = applyPricelist;
 
