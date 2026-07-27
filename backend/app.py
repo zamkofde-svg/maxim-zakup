@@ -1366,33 +1366,51 @@ def pricelist_apply(body: PricelistApplyBody, db: Session = Depends(get_db),
         raise HTTPException(404, "Поставщик не найден")
     cat_unit = _cat_unit_map(db)
     now = datetime.utcnow()
-    saved = 0
-    learned = 0
+
+    # СХЛОПЫВАЕМ ДУБЛИ до записи: в прайсе бывают повторы названий и несколько
+    # строк → одна мастер-позиция. Без дедупа получаем два INSERT и нарушение
+    # UNIQUE(supplier_id, product_master_id) / (supplier_id, raw_key) → 500.
+    price_by_pm: dict[int, tuple] = {}   # pm_id → (price, unit, comment)
+    alias_by_key: dict[str, int] = {}    # raw_key → pm_id
     for it in body.items:
+        if not it.pm_id or it.price is None or it.price <= 0:
+            continue
         pm = db.get(ProductMaster, it.pm_id)
-        if not pm or it.price is None or it.price <= 0:
+        if not pm:
             continue
         unit = it.unit or cat_unit.get(it.pm_id, "pkg")
         comment = (it.comment or "").strip() or None
-        r = _apply_live_price(db, sup.id, it.pm_id, it.price, comment, unit, now)
+        price_by_pm[it.pm_id] = (it.price, unit, comment)   # последняя строка побеждает
+        if it.raw_name:
+            k = alias_key(it.raw_name)
+            if k:
+                alias_by_key[k] = it.pm_id
+
+    saved = 0
+    for pm_id, (price, unit, comment) in price_by_pm.items():
+        r = _apply_live_price(db, sup.id, pm_id, price, comment, unit, now)
         if r == "saved":
             saved += 1
-        # запоминаем сопоставление
-        if it.raw_name:
-            key = alias_key(it.raw_name)
-            if key:
-                existing = db.execute(
-                    select(PricelistAlias).where(
-                        PricelistAlias.supplier_id == sup.id, PricelistAlias.raw_key == key)
-                ).scalar_one_or_none()
-                if existing:
-                    if existing.product_master_id != it.pm_id:
-                        existing.product_master_id = it.pm_id
-                        learned += 1
-                else:
-                    db.add(PricelistAlias(supplier_id=sup.id, raw_key=key, product_master_id=it.pm_id))
-                    learned += 1
-    db.commit()
+
+    learned = 0
+    for key, pm_id in alias_by_key.items():
+        existing = db.execute(
+            select(PricelistAlias).where(
+                PricelistAlias.supplier_id == sup.id, PricelistAlias.raw_key == key)
+        ).scalar_one_or_none()
+        if existing:
+            if existing.product_master_id != pm_id:
+                existing.product_master_id = pm_id
+                learned += 1
+        else:
+            db.add(PricelistAlias(supplier_id=sup.id, raw_key=key, product_master_id=pm_id))
+            learned += 1
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Не удалось применить цены: {e}")
     return {"saved": saved, "learned": learned, "supplier": sup.name}
 
 
