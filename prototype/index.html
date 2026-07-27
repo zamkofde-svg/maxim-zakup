@@ -1964,10 +1964,19 @@
     renderRecRows(data);
   }
 
+  // Умный поиск: «креветка» находит «креветки», «яблоко» — «яблоки» и т.п.
+  // Обрезаем хвостовую гласную у слов запроса и ищем стем как подстроку.
+  function _smartSearch(name, q) {
+    const nn = (name || '').toLowerCase().replace(/ё/g, 'е');
+    const stem = w => (w.length > 4 && 'аяоеиыуюэ'.includes(w[w.length - 1])) ? w.slice(0, -1) : w;
+    return q.replace(/ё/g, 'е').split(/\s+/).filter(Boolean).every(w => nn.includes(stem(w)));
+  }
+  window._smartSearch = _smartSearch;
+
   function onRecSearchInput() {
     const q = (document.getElementById('rec-search')?.value || '').toLowerCase().trim();
     if (!q) { renderRecRows(_recCache); return; }
-    const filtered = _recCache.filter(item => item.product.toLowerCase().includes(q));
+    const filtered = _recCache.filter(item => _smartSearch(item.product, q));
     renderRecRows(filtered, q);
   }
   window.onRecSearchInput = onRecSearchInput;
@@ -3660,7 +3669,7 @@
     if (!_summaryData) return [];
     return _summaryData.rows.filter(r => {
       if (_summaryCategory && r.category !== _summaryCategory) return false;
-      if (_summaryQuery && !r.product.toLowerCase().includes(_summaryQuery)) return false;
+      if (_summaryQuery && !_smartSearch(r.product, _summaryQuery)) return false;
       return true;
     });
   }
@@ -4070,7 +4079,7 @@
     if (q) {
       for (const c of _portalData.categories) {
         for (const p of c.positions) {
-          if (p.product.toLowerCase().includes(q)) entries.push({ p, unitLabel: unitOf(c.unit_type), catName: c.category });
+          if (_smartSearch(p.product, q)) entries.push({ p, unitLabel: unitOf(c.unit_type), catName: c.category });
         }
       }
     } else {
@@ -4130,7 +4139,7 @@
     const q = _portalSearch;
     // показываем только позиции где есть хоть какие-то цены на рынке
     let positions = cat.positions.filter(p => p.top1 != null);
-    if (q) positions = positions.filter(p => p.product.toLowerCase().includes(q));
+    if (q) positions = positions.filter(p => _smartSearch(p.product, q));
     const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const fmt = v => v == null ? '—' : (Number.isInteger(v) ? v : v.toFixed(2));
 
