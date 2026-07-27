@@ -38,6 +38,10 @@ import os
 DRIVE_DIR = Path(os.environ.get("DRIVE_SYNC_DIR", str(Path(__file__).parent.parent / "sample-data" / "drive-sync")))
 SAMPLES_DIR = Path(__file__).parent.parent / "sample-data"
 
+# Единый источник истины — сервис (портал/загрузка прайсов/ручные правки).
+# Импорт цен поставщиков из Google-матриц отключён (см. run_full_sync).
+IMPORT_SUPPLIER_MATRICES_FROM_DRIVE = False
+
 MASTER_FILE = "Матрица(для изменения позиций).xlsx"
 MAPPING_FILE = "Карта сопоставлений.xlsx"
 FACTS_DIR = DRIVE_DIR / "facts"  # подпапка для выгрузок iiko/SH
@@ -701,40 +705,44 @@ def main():
         r = import_mapping(db, mapping_path)
         print(f"→ mapping: {r}")
 
-    matrices = discover_supplier_matrices(DRIVE_DIR)
-    print(f"→ найдено матриц поставщиков: {len(matrices)}")
-    seen_supplier_norms: set[str] = set()
-    for sup_name, path in matrices:
-        seen_supplier_norms.add(normalize(sup_name))
-        r = import_supplier_matrix(db, path, sup_name)
-        print(f"→ matrix {sup_name}: {r}")
-
-    # === ЧИСТКА ФАНТОМНЫХ ПОСТАВЩИКОВ ===
-    # Поставщик в БД для которого больше нет xlsx-файла → фантом (файл удалён/переименован).
-    # Сносим вместе с его quotes и changes. PriceHistory оставляем как исторический архив.
-    # НО: поставщиков, заведённых/работающих через ПОРТАЛ (есть логин или портальные
-    # цены), не трогаем — у них матрицы в Drive нет по определению, это не фантомы.
-    from backend.models import PriceQuote as _PQ, PriceChange as _PC, User as _U
-    protected_ids = {
-        uid for (uid,) in db.execute(
-            select(_U.supplier_id).where(_U.role == "supplier", _U.supplier_id.isnot(None))
-        ).all()
-    }
-    protected_ids |= {
-        sid for (sid,) in db.execute(
-            select(_PQ.supplier_id).where(_PQ.source == "portal").distinct()
-        ).all()
-    }
-    phantoms = [
-        s for s in db.execute(select(Supplier)).scalars().all()
-        if s.name_normalized not in seen_supplier_norms and s.id not in protected_ids
-    ]
-    if phantoms:
-        for ph in phantoms:
-            db.execute(delete(_PQ).where(_PQ.supplier_id == ph.id))
-            db.execute(delete(_PC).where(_PC.supplier_id == ph.id))
-            db.delete(ph)
-        print(f"→ удалено фантомных поставщиков: {len(phantoms)} ({[p.name for p in phantoms]})")
+    # === ИМПОРТ ЦЕН ПОСТАВЩИКОВ ИЗ МАТРИЦ (ОТКЛЮЧЁН) ===
+    # Единый источник истины — БД (портал / загрузка прайсов / ручные правки в сервисе).
+    # Google-таблицы поставщиков БОЛЬШЕ НЕ импортируем: иначе пересчёт заново заливал
+    # цены из листов (в т.ч. лишние шаблонные вкладки, напр. «Шоколад» у овощного
+    # поставщика) и затирал/возвращал то, что чистили в приложении.
+    # Чистку «фантомных» поставщиков тоже НЕ делаем (без импорта матриц под неё попали
+    # бы все матричные поставщики). Существующие цены остаются в БД как есть.
+    if IMPORT_SUPPLIER_MATRICES_FROM_DRIVE:
+        matrices = discover_supplier_matrices(DRIVE_DIR)
+        print(f"→ найдено матриц поставщиков: {len(matrices)}")
+        seen_supplier_norms: set[str] = set()
+        for sup_name, path in matrices:
+            seen_supplier_norms.add(normalize(sup_name))
+            r = import_supplier_matrix(db, path, sup_name)
+            print(f"→ matrix {sup_name}: {r}")
+        from backend.models import PriceQuote as _PQ, PriceChange as _PC, User as _U
+        protected_ids = {
+            uid for (uid,) in db.execute(
+                select(_U.supplier_id).where(_U.role == "supplier", _U.supplier_id.isnot(None))
+            ).all()
+        }
+        protected_ids |= {
+            sid for (sid,) in db.execute(
+                select(_PQ.supplier_id).where(_PQ.source == "portal").distinct()
+            ).all()
+        }
+        phantoms = [
+            s for s in db.execute(select(Supplier)).scalars().all()
+            if s.name_normalized not in seen_supplier_norms and s.id not in protected_ids
+        ]
+        if phantoms:
+            for ph in phantoms:
+                db.execute(delete(_PQ).where(_PQ.supplier_id == ph.id))
+                db.execute(delete(_PC).where(_PC.supplier_id == ph.id))
+                db.delete(ph)
+            print(f"→ удалено фантомных поставщиков: {len(phantoms)} ({[p.name for p in phantoms]})")
+    else:
+        print("→ матрицы поставщиков: импорт из Drive ОТКЛЮЧЁН (источник истины — сервис)")
 
     print("→ facts:")
     r = import_facts(db)

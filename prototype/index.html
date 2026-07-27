@@ -1078,7 +1078,9 @@
               <i data-lucide="file-up" class="w-4 h-4"></i>
               Загрузить прайс
             </button>
-            <button onclick="runMasterSync()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
+            <!-- «Обновить по мастер-матрице» скрыто: это операция над Google-таблицами.
+                 Источник истины теперь сервис, матрицы поставщиков из Drive не импортируются. -->
+            <button onclick="runMasterSync()" style="display:none" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium buyer-only">
               <i data-lucide="git-fork" class="w-4 h-4"></i>
               Обновить по мастер-матрице
             </button>
