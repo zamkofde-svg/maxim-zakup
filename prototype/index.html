@@ -1410,6 +1410,7 @@
     <div class="flex items-center gap-2 sm:gap-3">
       <div class="text-xs text-slate-500 hidden sm:block" id="portal-progress">…</div>
       <button id="portal-back-btn" onclick="exitMasterPortal()" style="display:none" class="text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg px-3 py-2 font-medium">← Выйти</button>
+      <button id="portal-clear-btn" onclick="_clearFromPortal()" style="display:none" class="text-sm text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 font-medium" title="Удалить все цены поставщика">Очистить все</button>
       <button id="portal-save-btn" onclick="portalSave()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
         <i data-lucide="save" class="w-4 h-4"></i>
         <span>Сохранить</span>
@@ -2370,7 +2371,13 @@
               <button onclick="document.getElementById('sup-prices-modal').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
           </div>
-          <div id="sup-prices-body" class="overflow-y-auto p-5">${body}</div>
+          <div id="sup-prices-body" class="overflow-y-auto p-5 flex-1">${body}</div>
+          ${data.total ? `<div class="px-6 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
+            <span class="text-xs text-slate-400">Устарело? Можно обнулить и залить актуальное заново.</span>
+            <button onclick="confirmClearSupplierPrices(${data.supplier_id}, '${safe(data.supplier).replace(/'/g,"&#39;")}', ${data.total})" class="text-sm text-rose-600 hover:bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg font-medium inline-flex items-center gap-1.5">
+              <i data-lucide="trash-2" class="w-4 h-4"></i> Очистить все цены
+            </button>
+          </div>` : ''}
         </div>
       </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
@@ -2392,6 +2399,53 @@
     });
   }
   window.openSupplierPrices = openSupplierPrices;
+
+  function confirmClearSupplierPrices(supplierId, name, total) {
+    const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    document.getElementById('clear-sp-modal')?.remove();
+    const html = `
+      <div id="clear-sp-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-6" onclick="if(event.target===this)this.remove()">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div class="px-6 py-4 border-b border-slate-100 font-semibold text-rose-600 flex items-center gap-2"><i data-lucide="alert-triangle" class="w-5 h-5"></i> Очистить все цены</div>
+          <div class="p-6 space-y-3">
+            <div class="text-sm text-slate-700">Удалить <b>все ${total} цен</b> поставщика «${safe(name)}»? Он пропадёт из Топ-3 по этим позициям. <b>Действие необратимо.</b></div>
+            <div class="text-xs text-slate-500">История цен сохранится в архиве. После очистки залейте актуальные цены заново (портал / загрузка прайса).</div>
+            <div>
+              <label class="text-xs text-slate-500">Для подтверждения напишите <b>ОЧИСТИТЬ</b></label>
+              <input id="clear-sp-word" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-rose-400" placeholder="ОЧИСТИТЬ" oninput="document.getElementById('clear-sp-go').disabled = this.value.trim().toUpperCase() !== 'ОЧИСТИТЬ'">
+            </div>
+          </div>
+          <div class="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+            <button onclick="document.getElementById('clear-sp-modal').remove()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Отмена</button>
+            <button id="clear-sp-go" disabled onclick="doClearSupplierPrices(${supplierId}, '${safe(name).replace(/'/g,"&#39;")}')" class="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg font-medium">Очистить</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    if (window.lucide) lucide.createIcons();
+    document.getElementById('clear-sp-word').focus();
+  }
+  window.confirmClearSupplierPrices = confirmClearSupplierPrices;
+
+  async function doClearSupplierPrices(supplierId, name) {
+    const resp = await fetch(`${API_BASE}/suppliers/${supplierId}/prices`, { method: 'DELETE', credentials: 'include' });
+    if (resp.status === 401) { showLogin(); return; }
+    if (!resp.ok) { _toast('Ошибка очистки: ' + resp.status, true); return; }
+    const r = await resp.json();
+    document.getElementById('clear-sp-modal')?.remove();
+    document.getElementById('sup-prices-modal')?.remove();
+    _toast(`✓ Очищено цен: ${r.deleted} (${r.supplier})`);
+    // если открыт портал этого поставщика в мастер-режиме — перезагрузим
+    if (typeof _portalAsSupplierId !== 'undefined' && _portalAsSupplierId === supplierId) {
+      enterSupplierPortal(supplierId);
+    }
+    // обновим карточки поставщиков, если на странице
+    if (document.getElementById('page-suppliers')?.classList.contains('active')) {
+      document.getElementById('page-suppliers').dataset.loaded = '';
+      hydrateSuppliers();
+    }
+  }
+  window.doClearSupplierPrices = doClearSupplierPrices;
 
   async function _hydratePriceAlert() {
     // За 7 дней: сколько подорожало и средний %. Если ничего — плашка скрыта.
@@ -4075,6 +4129,9 @@
     if (backBtn) backBtn.style.display = data.is_buyer ? '' : 'none';
     const logoutBtn = document.getElementById('portal-logout-btn');
     if (logoutBtn) logoutBtn.style.display = data.is_buyer ? 'none' : '';
+    // «Очистить все» — только закупщику в мастер-режиме
+    const clearBtn = document.getElementById('portal-clear-btn');
+    if (clearBtn) clearBtn.style.display = data.is_buyer ? '' : 'none';
 
     // баннер для закупщика
     const banner = document.getElementById('portal-banner');
@@ -4102,6 +4159,12 @@
     document.getElementById('app-shell').style.display = '';
   }
   window.exitMasterPortal = exitMasterPortal;
+
+  function _clearFromPortal() {
+    if (!_portalAsSupplierId || !_portalData) return;
+    confirmClearSupplierPrices(_portalAsSupplierId, _portalData.supplier, _portalData.filled || 0);
+  }
+  window._clearFromPortal = _clearFromPortal;
 
   function _renderPortalTabs() {
     const wrap = document.getElementById('portal-cat-tabs');

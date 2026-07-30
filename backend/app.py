@@ -330,6 +330,21 @@ def supplier_prices(supplier_id: int, db: Session = Depends(get_db),
     }
 
 
+@app.delete("/api/suppliers/{supplier_id}/prices")
+def clear_supplier_prices(supplier_id: int, db: Session = Depends(get_db),
+                          user: User = Depends(require_role("buyer"))):
+    """Удаляет ВСЕ цены поставщика (и его pending) — «очистить всё», чтобы
+    начать с чистого листа и залить только актуальное. История цен (PriceHistory)
+    остаётся как архив. Необратимо — фронт подтверждает вводом слова."""
+    sup = db.get(Supplier, supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+    n = db.execute(delete(PriceQuote).where(PriceQuote.supplier_id == supplier_id)).rowcount
+    p = db.execute(delete(PendingPriceChange).where(PendingPriceChange.supplier_id == supplier_id)).rowcount
+    db.commit()
+    return {"deleted": n or 0, "pending_deleted": p or 0, "supplier": sup.name}
+
+
 # ============ ПОРТАЛ ПОСТАВЩИКА (этап 3) ============
 # Поставщик логинится своим аккаунтом и заполняет цены прямо в приложении,
 # вместо Google Sheets. Видит все позиции мастер-матрицы, разложенные по
