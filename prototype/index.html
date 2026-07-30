@@ -2310,15 +2310,88 @@
           ${s.comment ? `<div class="text-xs text-slate-600 leading-snug">${s.comment.replace(/</g, '&lt;')}</div>` : ''}
         </div>` : ''}
 
-        <div class="border-t border-slate-100 pt-3 text-xs text-slate-400">
-          обновлено: ${updated}
+        <div class="border-t border-slate-100 pt-3 flex items-center justify-between gap-2">
+          <button onclick="openSupplierPrices(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1">
+            <i data-lucide="list" class="w-3.5 h-3.5"></i> Позиции и цены
+          </button>
+          <span class="text-xs text-slate-400">обновлено: ${updated}</span>
         </div>
       `;
       frag.appendChild(card);
     }
     wrap.innerHTML = '';
     wrap.appendChild(frag);
+    if (window.lucide) lucide.createIcons();
   }
+
+  // ============ Просмотр цен поставщика ============
+  async function openSupplierPrices(supplierId, name) {
+    document.getElementById('sup-prices-modal')?.remove();
+    const data = await tryFetch(`${API_BASE}/suppliers/${supplierId}/prices`);
+    if (!data) { _toast('Не удалось загрузить цены поставщика', true); return; }
+    const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const fmt = v => v == null ? '—' : (Number.isInteger(v) ? v : v.toFixed(2));
+    const unit = ut => ut === 'kg_or_l' ? '₽/кг·л' : '₽/упак';
+    let body = '';
+    if (!data.total) {
+      body = '<div class="p-10 text-center text-slate-400 text-sm">У поставщика пока нет цен. Их можно внести через «Войти как» или загрузку прайса.</div>';
+    } else {
+      for (const c of data.categories) {
+        body += `<div class="mb-4">
+          <div class="px-1 mb-1.5 font-semibold text-slate-800 text-sm">${safe(c.category)} <span class="text-slate-400 font-normal">${c.positions.length}</span></div>
+          <div class="border border-slate-200 rounded-lg overflow-hidden">`;
+        for (const p of c.positions) {
+          // ранг: 1 = самый дешёвый на рынке
+          const rankBadge = p.suppliers_count > 1 && p.rank
+            ? (p.rank === 1
+                ? '<span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded" title="Самая низкая цена на рынке">🥇 дешевле всех</span>'
+                : `<span class="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded" title="Место среди ${p.suppliers_count} поставщиков">${p.rank} из ${p.suppliers_count}${p.market_min != null ? ' · мин ' + fmt(p.market_min) : ''}</span>`)
+            : (p.suppliers_count === 1 ? '<span class="text-[10px] text-slate-400">только он</span>' : '');
+          const cmt = p.comment ? `<div class="text-[10px] text-amber-700 mt-0.5">💬 ${safe(p.comment)}</div>` : '';
+          body += `<div class="flex items-center gap-3 px-3 py-2 border-b border-slate-100 last:border-0 text-sm hover:bg-slate-50">
+            <div class="flex-1 min-w-0"><div class="truncate text-slate-800">${safe(p.product)}</div>${cmt}</div>
+            <div class="text-right whitespace-nowrap"><span class="font-semibold text-slate-900">${fmt(p.price)}</span> <span class="text-[10px] text-slate-400">${unit(p.unit_type)}</span></div>
+            <div class="w-32 text-right">${rankBadge}</div>
+          </div>`;
+        }
+        body += `</div></div>`;
+      }
+    }
+    const html = `
+      <div id="sup-prices-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-6" onclick="if(event.target===this)this.remove()">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col">
+          <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div>
+              <div class="font-semibold text-slate-900 text-lg">${safe(data.supplier)}</div>
+              <div class="text-xs text-slate-500 mt-0.5">${data.total} позиций с ценой · 🥇 = где он дешевле всех</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <input id="sup-prices-search" type="text" placeholder="Поиск…" class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+              <button onclick="document.getElementById('sup-prices-modal').remove()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+          </div>
+          <div id="sup-prices-body" class="overflow-y-auto p-5">${body}</div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    if (window.lucide) lucide.createIcons();
+    // поиск внутри модалки
+    const sb = document.getElementById('sup-prices-search');
+    sb.addEventListener('input', () => {
+      const q = sb.value.trim().toLowerCase();
+      document.querySelectorAll('#sup-prices-body > div').forEach(cat => {
+        let any = false;
+        cat.querySelectorAll('.flex.items-center.gap-3').forEach(row => {
+          const txt = row.textContent.toLowerCase();
+          const show = !q || _smartSearch(txt, q);
+          row.style.display = show ? '' : 'none';
+          if (show) any = true;
+        });
+        cat.style.display = any ? '' : 'none';
+      });
+    });
+  }
+  window.openSupplierPrices = openSupplierPrices;
 
   async function _hydratePriceAlert() {
     // За 7 дней: сколько подорожало и средний %. Если ничего — плашка скрыта.

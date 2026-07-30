@@ -285,6 +285,51 @@ def list_suppliers(
     return result
 
 
+@app.get("/api/suppliers/{supplier_id}/prices")
+def supplier_prices(supplier_id: int, db: Session = Depends(get_db),
+                    user: User = Depends(require_role("buyer"))):
+    """Все позиции поставщика с ценами (его ассортимент), по категориям.
+    Для каждой позиции — место среди всех поставщиков (1 = самый дешёвый) и
+    минимальная цена на рынке, чтобы видеть где он выгоднее/дороже."""
+    sup = db.get(Supplier, supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+    # рынок: цены по каждой позиции
+    by_pm: dict[int, list] = {}
+    for pm_id, price in db.execute(
+        select(PriceQuote.product_master_id, PriceQuote.unit_price)
+    ).all():
+        by_pm.setdefault(pm_id, []).append(price)
+
+    rows = db.execute(
+        select(PriceQuote, ProductMaster, Category)
+        .join(ProductMaster, ProductMaster.id == PriceQuote.product_master_id)
+        .join(Category, Category.id == ProductMaster.category_id)
+        .where(PriceQuote.supplier_id == supplier_id)
+        .order_by(Category.name, ProductMaster.name)
+    ).all()
+
+    cats: dict[str, dict] = {}
+    for pq, pm, cat in rows:
+        prices = sorted(by_pm.get(pm.id, []))
+        rank = (prices.index(pq.unit_price) + 1) if pq.unit_price in prices else None
+        c = cats.setdefault(cat.name, {"category": cat.name, "positions": []})
+        c["positions"].append({
+            "product_id": pm.id, "product": pm.name,
+            "price": pq.unit_price,
+            "unit_type": pm.unit_type or cat.unit_type,
+            "comment": pq.supplier_comment or "",
+            "has_photo": pm.has_photo,
+            "rank": rank, "suppliers_count": len(prices),
+            "market_min": prices[0] if prices else None,
+        })
+    cats_list = sorted(cats.values(), key=lambda x: x["category"].casefold())
+    return {
+        "supplier": sup.name, "supplier_id": sup.id,
+        "total": len(rows), "categories": cats_list,
+    }
+
+
 # ============ ПОРТАЛ ПОСТАВЩИКА (этап 3) ============
 # Поставщик логинится своим аккаунтом и заполняет цены прямо в приложении,
 # вместо Google Sheets. Видит все позиции мастер-матрицы, разложенные по
