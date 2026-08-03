@@ -1658,7 +1658,8 @@
     // Из Топ-2 имя поставщика кликабельно — открывает вкладку «Поставщики» с фокусом
     // на нужного, чтобы шеф мог сразу позвонить менеджеру.
     const isBuyer = CURRENT_USER && CURRENT_USER.role === 'buyer';
-    const chefAllowedPages = new Set(['analysis', 'recommendations', 'suppliers', 'prices']);
+    // «Анализ закупок» временно скрыт у шефов — путались (по просьбе заказчика).
+    const chefAllowedPages = new Set(['recommendations', 'suppliers', 'prices']);
 
     // Скрываем пункты меню
     document.querySelectorAll('.nav-item').forEach(item => {
