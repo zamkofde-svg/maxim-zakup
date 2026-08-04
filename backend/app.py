@@ -1331,8 +1331,8 @@ async def pricelist_preview(supplier_id: int, file: UploadFile = File(...),
         raise HTTPException(404, "Поставщик не найден")
     import os as _os, tempfile
     suffix = _os.path.splitext(file.filename or "")[1].lower()
-    if suffix not in (".xlsx", ".xlsm", ".docx"):
-        raise HTTPException(400, "Поддерживаются только .xlsx и .docx")
+    if suffix not in (".xlsx", ".xlsm", ".xls", ".docx"):
+        raise HTTPException(400, "Поддерживаются .xlsx, .xls и .docx")
     data = await file.read()
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tf:
         tf.write(data)

@@ -67,6 +67,21 @@ def _read_rows_xlsx(path):
     return rows
 
 
+def _read_rows_xls(path):
+    """Старый формат .xls (BIFF/OLE2) — читаем через xlrd."""
+    import xlrd
+    wb = xlrd.open_workbook(str(path))
+    rows = []
+    for ws in wb.sheets():
+        for r in range(ws.nrows):
+            row = []
+            for c in range(ws.ncols):
+                v = ws.cell_value(r, c)
+                row.append(v if v not in ("", None) else None)
+            rows.append(row)
+    return rows
+
+
 def _read_rows_docx(path):
     z = zipfile.ZipFile(path)
     root = ET.fromstring(z.read("word/document.xml").decode("utf-8"))
@@ -95,6 +110,8 @@ def parse_pricelist(path):
     ext = path.suffix.lower()
     if ext in (".xlsx", ".xlsm"):
         rows = _read_rows_xlsx(path)
+    elif ext == ".xls":
+        rows = _read_rows_xls(path)
     elif ext == ".docx":
         rows = _read_rows_docx(path)
     else:
