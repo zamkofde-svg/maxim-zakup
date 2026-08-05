@@ -52,6 +52,8 @@ class Supplier(Base):
     name_normalized: Mapped[str] = mapped_column(String(256), index=True)
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False)
     # для Цех/Производство — это не внешний поставщик
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    # скрыт закупщиком (напр. «мусорные» поставщики из выгрузок iiko) — не показываем в списке
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     aliases: Mapped[list["SupplierAlias"]] = relationship(back_populates="supplier", cascade="all, delete-orphan")

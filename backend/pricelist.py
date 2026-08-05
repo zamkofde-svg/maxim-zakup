@@ -218,7 +218,13 @@ def match_name(name: str, index: list, topn: int = 4) -> list:
         union = len(q | mt)
         score = inter / union if union else 0
         if q <= mt or mt <= q:
-            score = max(score, 0.85)
+            # ПОЛНОЕ вхождение одного набора в другой. «Точно» (0.85) даём ТОЛЬКО если
+            # покрыта бо́льшая часть большего набора — т.е. совпадение почти полное.
+            # Иначе «сахар»→«Сахар ванильный», «перец»→«Перец красный», «нут»→«Крупа Нут…»
+            # ложно попадали в «точно» и заливались не туда. Частичное вхождение → 0.5
+            # («проверьте»), закупщик решает сам.
+            coverage = inter / max(len(q), len(mt))
+            score = max(score, 0.85 if coverage >= 0.6 else 0.5)
         scored.append((m, score))
     scored.sort(key=lambda x: -x[1])
     return scored[:topn]

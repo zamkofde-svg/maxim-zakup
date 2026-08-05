@@ -58,6 +58,9 @@ def _apply_lightweight_migrations() -> None:
             ("has_photo", "BOOLEAN DEFAULT 0"),
             ("unit_type", "VARCHAR(16)"),
         ],
+        "suppliers": [
+            ("hidden", "BOOLEAN DEFAULT 0"),
+        ],
     }
     with engine.begin() as conn:
         for table, cols in expected.items():

@@ -2316,7 +2316,7 @@
           <button onclick="openSupplierPrices(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1">
             <i data-lucide="list" class="w-3.5 h-3.5"></i> Позиции и цены
           </button>
-          <span class="text-xs text-slate-400">обновлено: ${updated}</span>
+          <button onclick="hideSupplier(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="text-xs text-slate-400 hover:text-rose-600" title="Скрыть поставщика из списка">скрыть</button>
         </div>
       `;
       frag.appendChild(card);
@@ -2400,6 +2400,17 @@
     });
   }
   window.openSupplierPrices = openSupplierPrices;
+
+  async function hideSupplier(supplierId, name) {
+    if (!confirm(`Скрыть поставщика «${name}» из списка?\n\nОн исчезнет с карточек (данные не удаляются). Обычно так убирают «мусорных» поставщиков из выгрузок iiko.`)) return;
+    const resp = await fetch(`${API_BASE}/suppliers/${supplierId}/hide`, { method: 'POST', credentials: 'include' });
+    if (resp.status === 401) { showLogin(); return; }
+    if (!resp.ok) { _toast('Ошибка: ' + resp.status, true); return; }
+    _toast(`✓ Поставщик скрыт: ${name}`);
+    document.getElementById('page-suppliers').dataset.loaded = '';
+    hydrateSuppliers();
+  }
+  window.hideSupplier = hideSupplier;
 
   function confirmClearSupplierPrices(supplierId, name, total) {
     const safe = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

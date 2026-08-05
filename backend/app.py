@@ -229,7 +229,7 @@ def list_suppliers(
     """Список поставщиков + сколько у них позиций + дата последнего обновления + сколько раз они Топ-1
     + контакты из Google Sheets (имя, телефон, мин. сумма заказа, комментарий)."""
     sups = db.execute(
-        select(Supplier).where(Supplier.is_internal == False).order_by(Supplier.name)
+        select(Supplier).where(Supplier.is_internal == False, Supplier.hidden == False).order_by(Supplier.name)
     ).scalars().all()
 
     # Топ-1 кеш: для каждого мастер-продукта найти поставщика с минимальной ценой
@@ -328,6 +328,19 @@ def supplier_prices(supplier_id: int, db: Session = Depends(get_db),
         "supplier": sup.name, "supplier_id": sup.id,
         "total": len(rows), "categories": cats_list,
     }
+
+
+@app.post("/api/suppliers/{supplier_id}/hide")
+def hide_supplier(supplier_id: int, db: Session = Depends(get_db),
+                  user: User = Depends(require_role("buyer"))):
+    """Скрыть поставщика из списка (напр. «мусорный» из выгрузок iiko). Не удаляет —
+    просто прячет с карточек. Вернуть можно через ?unhide."""
+    sup = db.get(Supplier, supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+    sup.hidden = True
+    db.commit()
+    return {"hidden": True, "supplier": sup.name}
 
 
 @app.delete("/api/suppliers/{supplier_id}/prices")
