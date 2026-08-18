@@ -812,6 +812,16 @@ class CreateNewSupplier(BaseModel):
     password: Optional[str] = None   # если не задан — сгенерим
 
 
+def _unique_username(db: Session, name: str, sup_id: int) -> str:
+    base = _translit(name)[:20] or f"sup{sup_id}"
+    username = base
+    n = 1
+    while db.execute(select(User).where(User.username == username)).scalar_one_or_none():
+        n += 1
+        username = f"{base}{n}"
+    return username
+
+
 @app.post("/api/supplier-accounts/new")
 def create_new_supplier(body: CreateNewSupplier, db: Session = Depends(get_db),
                         user: User = Depends(require_role("buyer"))):
@@ -821,31 +831,45 @@ def create_new_supplier(body: CreateNewSupplier, db: Session = Depends(get_db),
     if not name:
         raise HTTPException(400, "Пустое название поставщика")
     nn = _normname(name)
-    dup = db.execute(
+    import secrets as _secrets
+    password = body.password or _secrets.token_urlsafe(6)
+
+    # Уже есть такой поставщик (напр. скрытый или заведённый из выгрузки iiko)?
+    # Не блокируем — ПЕРЕИСПОЛЬЗУЕМ: возвращаем из скрытых и заводим/сбрасываем логин,
+    # чтобы можно было сразу вносить цены.
+    existed = db.execute(
         select(Supplier).where(Supplier.name_normalized == nn)
     ).scalar_one_or_none()
-    if dup:
-        raise HTTPException(409, f"Поставщик «{dup.name}» уже есть — задайте ему логин в списке ниже")
+    if existed:
+        sup = existed
+        sup.hidden = False
+        sup.is_internal = False
+        acc = db.execute(
+            select(User).where(User.role == "supplier", User.supplier_id == sup.id)
+        ).scalar_one_or_none()
+        if acc:
+            acc.password_hash = hash_password(password)   # сброс пароля → отдаём свежий
+            acc.is_active = True
+            username = acc.username
+        else:
+            username = _unique_username(db, name, sup.id)
+            db.add(User(username=username, password_hash=hash_password(password),
+                        role="supplier", supplier_id=sup.id, full_name=sup.name, is_active=True))
+        db.commit()
+        return {"supplier_id": sup.id, "supplier": sup.name,
+                "username": username, "password": password, "existed": True}
 
     sup = Supplier(name=name, name_normalized=nn, is_internal=False)
     db.add(sup)
     db.flush()   # получить sup.id
-
-    import secrets as _secrets
-    password = body.password or _secrets.token_urlsafe(6)
-    base = _translit(name)[:20] or f"sup{sup.id}"
-    username = base
-    n = 1
-    while db.execute(select(User).where(User.username == username)).scalar_one_or_none():
-        n += 1
-        username = f"{base}{n}"
+    username = _unique_username(db, name, sup.id)
     db.add(User(
         username=username, password_hash=hash_password(password),
         role="supplier", supplier_id=sup.id, full_name=sup.name, is_active=True,
     ))
     db.commit()
     return {"supplier_id": sup.id, "supplier": sup.name,
-            "username": username, "password": password}
+            "username": username, "password": password, "existed": False}
 
 
 @app.post("/api/supplier-accounts/{supplier_id}/toggle")

@@ -2313,10 +2313,10 @@
         </div>` : ''}
 
         <div class="border-t border-slate-100 pt-3 flex items-center justify-between gap-2">
-          <button onclick="openSupplierPrices(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1">
+          <button onclick="openSupplierPrices(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="buyer-only text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1">
             <i data-lucide="list" class="w-3.5 h-3.5"></i> Позиции и цены
           </button>
-          <button onclick="hideSupplier(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="text-xs text-slate-400 hover:text-rose-600" title="Скрыть поставщика из списка">скрыть</button>
+          <button onclick="hideSupplier(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="buyer-only text-xs text-slate-400 hover:text-rose-600" title="Скрыть поставщика из списка">скрыть</button>
         </div>
       `;
       frag.appendChild(card);
@@ -2324,6 +2324,10 @@
     wrap.innerHTML = '';
     wrap.appendChild(frag);
     if (window.lucide) lucide.createIcons();
+    // карточки рендерятся динамически — прячем buyer-only кнопки для шефа вручную
+    if (!(CURRENT_USER && CURRENT_USER.role === 'buyer')) {
+      wrap.querySelectorAll('.buyer-only').forEach(e => e.style.display = 'none');
+    }
   }
 
   // ============ Просмотр цен поставщика ============
@@ -2929,9 +2933,11 @@
       err.textContent = msg; err.classList.remove('hidden'); return;
     }
     const r = await resp.json();
-    prompt(`Поставщик «${r.supplier}» создан. Логин и пароль (пароль больше не показывается — скопируйте и передайте):`,
-           `Логин: ${r.username}    Пароль: ${r.password}`);
-    openSupplierAccounts();  // перерисовать список (новый поставщик появится с логином)
+    const head = r.existed
+      ? `Поставщик «${r.supplier}» уже был в базе — вернул в список и обновил доступ. Логин и пароль (скопируйте и передайте):`
+      : `Поставщик «${r.supplier}» создан. Логин и пароль (пароль больше не показывается — скопируйте и передайте):`;
+    prompt(head, `Логин: ${r.username}    Пароль: ${r.password}`);
+    openSupplierAccounts();  // перерисовать список
   }
   window.createNewSupplier = createNewSupplier;
 
