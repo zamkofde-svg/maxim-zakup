@@ -344,6 +344,40 @@ def hide_supplier(supplier_id: int, db: Session = Depends(get_db),
     return {"hidden": True, "supplier": sup.name}
 
 
+@app.delete("/api/suppliers/{supplier_id}")
+def delete_supplier(supplier_id: int, db: Session = Depends(get_db),
+                    user: User = Depends(require_role("buyer"))):
+    """Полное удаление поставщика: логин, цены, история, изменения, pending,
+    алиасы, ссылки в фактах/отклонениях отвязываются. Необратимо."""
+    sup = db.get(Supplier, supplier_id)
+    if not sup:
+        raise HTTPException(404, "Поставщик не найден")
+    name = sup.name
+    n_q = db.execute(select(func.count()).select_from(PriceQuote)
+                     .where(PriceQuote.supplier_id == supplier_id)).scalar() or 0
+    # отвязываем ссылки в фактах/отклонениях (иначе висячие id)
+    db.execute(PurchaseFact.__table__.update()
+               .where(PurchaseFact.supplier_id == supplier_id).values(supplier_id=None))
+    for col in (Deviation.top1_supplier_id, Deviation.top2_supplier_id):
+        db.execute(Deviation.__table__.update().where(col == supplier_id).values({col.key: None}))
+    # удаляем цены и связанное
+    db.execute(delete(PriceQuote).where(PriceQuote.supplier_id == supplier_id))
+    db.execute(delete(PriceHistory).where(PriceHistory.supplier_id == supplier_id))
+    db.execute(delete(PriceChange).where(PriceChange.supplier_id == supplier_id))
+    db.execute(delete(PendingPriceChange).where(PendingPriceChange.supplier_id == supplier_id))
+    db.execute(delete(PricelistAlias).where(PricelistAlias.supplier_id == supplier_id))
+    # логин(ы)
+    for u in db.execute(select(User).where(User.supplier_id == supplier_id)).scalars():
+        db.delete(u)
+    db.delete(sup)   # SupplierAlias удалится каскадом (cascade delete-orphan)
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Не удалось удалить: {e}")
+    return {"deleted": True, "supplier": name, "prices_deleted": n_q}
+
+
 @app.delete("/api/suppliers/{supplier_id}/prices")
 def clear_supplier_prices(supplier_id: int, db: Session = Depends(get_db),
                           user: User = Depends(require_role("buyer"))):

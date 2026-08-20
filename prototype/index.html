@@ -2855,11 +2855,12 @@
       const enterBtn = `<button onclick="document.getElementById('sup-acc-modal').remove(); enterSupplierPortal(${s.supplier_id})" class="text-xs bg-indigo-600 text-white px-2.5 py-1 rounded mr-3">Войти как →</button>`;
       const createBtn = `<button onclick="createSupplierLogin(${s.supplier_id})" class="text-xs text-indigo-600 hover:underline">${s.has_login ? 'сбросить пароль' : 'создать логин'}</button>`;
       const toggleBtn = s.has_login ? `<button onclick="toggleSupplierLogin(${s.supplier_id})" class="text-xs text-slate-500 hover:underline ml-3">${s.is_active ? 'выключить' : 'включить'}</button>` : '';
+      const delBtn = `<button onclick="deleteSupplierAcc(${s.supplier_id}, '${safe(s.name).replace(/'/g,"&#39;")}')" class="text-xs text-rose-500 hover:underline ml-3">удалить</button>`;
       return `
-        <tr class="hover:bg-slate-50">
+        <tr class="sa-row hover:bg-slate-50" data-search="${safe((s.name + ' ' + (s.username || '')).toLowerCase())}">
           <td class="px-4 py-2 text-sm">${safe(s.name)}</td>
           <td class="px-4 py-2">${badge}</td>
-          <td class="px-4 py-2 text-right">${s.has_login ? enterBtn : ''}${createBtn}${toggleBtn}</td>
+          <td class="px-4 py-2 text-right whitespace-nowrap">${s.has_login ? enterBtn : ''}${createBtn}${toggleBtn}${delBtn}</td>
         </tr>`;
     }).join('');
     const html = `
@@ -2880,6 +2881,12 @@
               <button onclick="createNewSupplier()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Создать</button>
             </div>
             <div id="new-sup-error" class="text-xs text-rose-600 mt-1.5 hidden"></div>
+          </div>
+          <div class="px-6 py-2.5 border-b border-slate-100">
+            <div class="relative">
+              <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+              <input id="sa-search" oninput="_saFilter()" type="text" placeholder="Поиск по поставщику…" class="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
           </div>
           <div class="overflow-y-auto">
             <table class="w-full">
@@ -2915,6 +2922,29 @@
     openSupplierAccounts();
   }
   window.toggleSupplierLogin = toggleSupplierLogin;
+
+  function _saFilter() {
+    const q = (document.getElementById('sa-search')?.value || '').trim().toLowerCase();
+    document.querySelectorAll('#sup-acc-modal .sa-row').forEach(r => {
+      r.style.display = (!q || _smartSearch(r.dataset.search || '', q)) ? '' : 'none';
+    });
+  }
+  window._saFilter = _saFilter;
+
+  async function deleteSupplierAcc(supplierId, name) {
+    if (!confirm(`Удалить поставщика «${name}» НАВСЕГДА?\n\nБудут удалены его логин, все цены и история. Действие необратимо.\n\n(Если нужно временно убрать из списка — используйте «скрыть» на карточке.)`)) return;
+    const resp = await fetch(`${API_BASE}/suppliers/${supplierId}`, { method: 'DELETE', credentials: 'include' });
+    if (resp.status === 401) { showLogin(); return; }
+    if (!resp.ok) { _toast('Ошибка удаления: ' + resp.status, true); return; }
+    const r = await resp.json();
+    _toast(`✓ Поставщик удалён: ${name}${r.prices_deleted ? ` (цен: ${r.prices_deleted})` : ''}`);
+    openSupplierAccounts();  // перерисовать модалку
+    if (document.getElementById('page-suppliers')?.classList.contains('active')) {
+      document.getElementById('page-suppliers').dataset.loaded = '';
+      hydrateSuppliers();
+    }
+  }
+  window.deleteSupplierAcc = deleteSupplierAcc;
 
   async function createNewSupplier() {
     const name = document.getElementById('new-sup-name').value.trim();
