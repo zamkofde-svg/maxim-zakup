@@ -2313,7 +2313,7 @@
         </div>` : ''}
 
         <div class="border-t border-slate-100 pt-3 flex items-center justify-between gap-2">
-          <button onclick="openSupplierPrices(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="buyer-only text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1">
+          <button onclick="openSupplierPrices(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1">
             <i data-lucide="list" class="w-3.5 h-3.5"></i> Позиции и цены
           </button>
           <button onclick="hideSupplier(${s.id}, '${s.name.replace(/'/g,"&#39;").replace(/</g,'&lt;')}')" class="buyer-only text-xs text-slate-400 hover:text-rose-600" title="Скрыть поставщика из списка">скрыть</button>
@@ -2377,7 +2377,7 @@
             </div>
           </div>
           <div id="sup-prices-body" class="overflow-y-auto p-5 flex-1">${body}</div>
-          ${data.total ? `<div class="px-6 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
+          ${(data.total && CURRENT_USER && CURRENT_USER.role === 'buyer') ? `<div class="px-6 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
             <span class="text-xs text-slate-400">Устарело? Можно обнулить и залить актуальное заново.</span>
             <button onclick="confirmClearSupplierPrices(${data.supplier_id}, '${safe(data.supplier).replace(/'/g,"&#39;")}', ${data.total})" class="text-sm text-rose-600 hover:bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg font-medium inline-flex items-center gap-1.5">
               <i data-lucide="trash-2" class="w-4 h-4"></i> Очистить все цены

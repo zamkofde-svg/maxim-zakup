@@ -287,8 +287,9 @@ def list_suppliers(
 
 @app.get("/api/suppliers/{supplier_id}/prices")
 def supplier_prices(supplier_id: int, db: Session = Depends(get_db),
-                    user: User = Depends(require_role("buyer"))):
+                    user: User = Depends(current_user)):
     """Все позиции поставщика с ценами (его ассортимент), по категориям.
+    Доступно и шефу (просмотр) — очистка/скрытие остаются только у закупщика.
     Для каждой позиции — место среди всех поставщиков (1 = самый дешёвый) и
     минимальная цена на рынке, чтобы видеть где он выгоднее/дороже."""
     sup = db.get(Supplier, supplier_id)
